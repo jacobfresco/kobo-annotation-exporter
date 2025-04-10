@@ -1,0 +1,8 @@
+{
+    "joplin_api_token": "YOUR_API_TOKEN_HERE",
+    "notebook_id": "YOUR_NOTEBOOK_ID_HERE",
+    "web_clipper": {
+        "url": "http://localhost",
+        "port": 41184
+    }
+} 

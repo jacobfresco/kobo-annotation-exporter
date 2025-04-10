@@ -1,0 +1,4 @@
+joppy>=1.0.0
+pywin32>=305
+requests>=2.31.0
+pyinstaller>=6.0.0 
