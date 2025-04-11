@@ -5,7 +5,7 @@ import os
 import json
 from joppy.client_api import ClientApi
 import xml.etree.ElementTree as ET
-import win32api
+import win32apigit 
 import string
 import requests
 import socket
