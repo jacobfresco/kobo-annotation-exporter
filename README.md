@@ -40,7 +40,7 @@ Annotations are exported with the following format:
 ### Option 2: From source
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/kobo-annotation-exporter.git
+git clone https://github.com/jacobfresco/kobo-annotation-exporter.git
 cd kobo-annotation-exporter
 ```
 
