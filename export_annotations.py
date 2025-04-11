@@ -11,6 +11,7 @@ import requests
 import socket
 from urllib.parse import urljoin
 from datetime import datetime
+import sys
 
 class KoboToJoplinApp:
     def __init__(self, root):
@@ -34,7 +35,7 @@ class KoboToJoplinApp:
         try:
             self.joplin = ClientApi(
                 token=self.config['joplin_api_token'],
-                base_url=self.config['web_clipper']['url'],
+                url=self.config['web_clipper']['url'],
                 port=self.config['web_clipper']['port']
             )
             # Test the connection
@@ -96,11 +97,21 @@ class KoboToJoplinApp:
     def load_config(self):
         """Load configuration from config.json"""
         try:
-            if not os.path.exists('config.json'):
-                messagebox.showerror("Error", "config.json not found. Please copy config.json.default to config.json and configure it.")
+            # Get the directory where the executable or script is located
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Running as script
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            config_path = os.path.join(base_path, 'config.json')
+            
+            if not os.path.exists(config_path):
+                messagebox.showerror("Error", f"config.json not found at {config_path}. Please copy config.json.default to config.json and configure it.")
                 return None
                 
-            with open('config.json', 'r') as f:
+            with open(config_path, 'r') as f:
                 config = json.load(f)
                 
             # Validate required fields
@@ -690,7 +701,7 @@ class KoboToJoplinApp:
             # Reinitialize Joplin API with new token
             self.joplin = ClientApi(
                 token=self.config['joplin_api_token'],
-                base_url=self.config['web_clipper']['url'],
+                url=self.config['web_clipper']['url'],
                 port=self.config['web_clipper']['port']
             )
             
