@@ -17,6 +17,11 @@ class KoboToJoplinApp:
         self.root = root
         self.root.title("Kobo to Joplin Annotation Exporter")
         
+        # Set window icon
+        icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
+        
         # Load configuration
         self.config = self.load_config()
         
