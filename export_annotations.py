@@ -35,8 +35,7 @@ class KoboToJoplinApp:
         try:
             self.joplin = ClientApi(
                 token=self.config['joplin_api_token'],
-                url=self.config['web_clipper']['url'],
-                port=self.config['web_clipper']['port']
+                base_url=f"http://{self.config['web_clipper']['url']}:{self.config['web_clipper']['port']}"
             )
             # Test the connection
             self.joplin.ping()
@@ -701,8 +700,7 @@ class KoboToJoplinApp:
             # Reinitialize Joplin API with new token
             self.joplin = ClientApi(
                 token=self.config['joplin_api_token'],
-                url=self.config['web_clipper']['url'],
-                port=self.config['web_clipper']['port']
+                base_url=f"http://{self.config['web_clipper']['url']}:{self.config['web_clipper']['port']}"
             )
             
             settings_window.destroy()
