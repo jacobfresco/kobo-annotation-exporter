@@ -11,6 +11,7 @@ import requests
 import socket
 from urllib.parse import urljoin
 from datetime import datetime
+import sys
 
 class KoboToJoplinApp:
     def __init__(self, root):
@@ -76,45 +77,41 @@ class KoboToJoplinApp:
             return False
             
     def load_config(self):
-        """Load configuration from config.json file."""
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        """Load configuration from config.json or create from default if not exists"""
         try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                
-            # Ensure web_clipper section exists
-            if 'web_clipper' not in config:
-                config['web_clipper'] = {
-                    'url': 'http://localhost',
-                    'port': 41184
-                }
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=4)
-                    
-            return config
-        except FileNotFoundError:
-            # Create default config if it doesn't exist
-            default_config = {
-                "joplin_api_token": "",
-                "notebook_id": "",
-                "web_clipper": {
-                    "url": "http://localhost",
-                    "port": 41184
-                }
-            }
-            with open(config_path, 'w') as f:
-                json.dump(default_config, f, indent=4)
-            return default_config
-        except json.JSONDecodeError:
-            messagebox.showerror("Error", "Invalid config.json file")
-            return {
-                "joplin_api_token": "",
-                "notebook_id": "",
-                "web_clipper": {
-                    "url": "http://localhost",
-                    "port": 41184
-                }
-            }
+            # Get the directory where the script or executable is located
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Running as script
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            config_path = os.path.join(base_path, 'config.json')
+            default_config_path = os.path.join(base_path, 'config.json.default')
+            
+            print(f"Looking for config at: {config_path}")  # Debug print
+            
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    print("Successfully loaded config.json")  # Debug print
+                    return config
+            elif os.path.exists(default_config_path):
+                with open(default_config_path, 'r') as f:
+                    config = json.load(f)
+                    print("Using default config")  # Debug print
+                    return config
+            else:
+                print("No config files found")  # Debug print
+                messagebox.showerror("Error", "No configuration file found. Please create config.json or config.json.default")
+                self.root.destroy()
+                return None
+        except Exception as e:
+            print(f"Error loading config: {str(e)}")  # Debug print
+            messagebox.showerror("Error", f"Failed to load configuration: {str(e)}")
+            self.root.destroy()
+            return None
         
     def detect_kobo_devices(self):
         """Detect connected Kobo devices and update the dropdown."""
