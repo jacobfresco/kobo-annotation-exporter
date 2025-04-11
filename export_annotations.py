@@ -11,8 +11,6 @@ import requests
 import socket
 from urllib.parse import urljoin
 from datetime import datetime
-import sys
-
 class KoboToJoplinApp:
     def __init__(self, root):
         self.root = root
