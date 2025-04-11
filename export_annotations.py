@@ -15,24 +15,42 @@ from datetime import datetime
 class KoboToJoplinApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Kobo to Joplin Annotation Exporter")
+        self.root.title("Kobo Annotation Exporter")
+        self.root.geometry("800x600")
         
         # Load configuration
-        self.config = self.load_config()
-        
-        # Check Joplin service and API token
-        if not self.check_joplin_service():
-            messagebox.showerror("Error", "Could not connect to Joplin Web Clipper service. Please make sure Joplin is running and the Web Clipper is enabled.")
-            return
-            
-        if not self.validate_api_token():
-            messagebox.showerror("Error", "Invalid Joplin API token. Please check your configuration.")
+        try:
+            self.config = self.load_config()
+            if not self.config:
+                messagebox.showerror("Error", "Failed to load configuration. Please check config.json")
+                self.root.destroy()
+                return
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load configuration: {str(e)}")
+            self.root.destroy()
             return
         
         # Initialize Joplin API
-        self.joplin = ClientApi(token=self.config['joplin_api_token'])
+        try:
+            self.joplin = ClientApi(
+                token=self.config['joplin_api_token'],
+                base_url=self.config['web_clipper']['url'],
+                port=self.config['web_clipper']['port']
+            )
+            # Test the connection
+            self.joplin.ping()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to connect to Joplin: {str(e)}")
+            self.root.destroy()
+            return
         
-        # Setup UI
+        # Initialize device paths
+        self.device_paths = self.get_kobo_devices()
+        if not self.device_paths:
+            messagebox.showerror("Error", "No Kobo devices found. Please connect a Kobo device and try again.")
+            self.root.destroy()
+            return
+        
         self.setup_ui()
         
         # Store selected annotations
@@ -76,45 +94,35 @@ class KoboToJoplinApp:
             return False
             
     def load_config(self):
-        """Load configuration from config.json file."""
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        """Load configuration from config.json"""
         try:
-            with open(config_path, 'r') as f:
+            if not os.path.exists('config.json'):
+                messagebox.showerror("Error", "config.json not found. Please copy config.json.default to config.json and configure it.")
+                return None
+                
+            with open('config.json', 'r') as f:
                 config = json.load(f)
                 
-            # Ensure web_clipper section exists
-            if 'web_clipper' not in config:
-                config['web_clipper'] = {
-                    'url': 'http://localhost',
-                    'port': 41184
-                }
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=4)
+            # Validate required fields
+            required_fields = ['joplin_api_token', 'notebook_id', 'web_clipper']
+            for field in required_fields:
+                if field not in config:
+                    messagebox.showerror("Error", f"Missing required field in config.json: {field}")
+                    return None
                     
+            # Validate web_clipper fields
+            if 'url' not in config['web_clipper'] or 'port' not in config['web_clipper']:
+                messagebox.showerror("Error", "Missing required fields in web_clipper configuration")
+                return None
+                
             return config
-        except FileNotFoundError:
-            # Create default config if it doesn't exist
-            default_config = {
-                "joplin_api_token": "",
-                "notebook_id": "",
-                "web_clipper": {
-                    "url": "http://localhost",
-                    "port": 41184
-                }
-            }
-            with open(config_path, 'w') as f:
-                json.dump(default_config, f, indent=4)
-            return default_config
+            
         except json.JSONDecodeError:
-            messagebox.showerror("Error", "Invalid config.json file")
-            return {
-                "joplin_api_token": "",
-                "notebook_id": "",
-                "web_clipper": {
-                    "url": "http://localhost",
-                    "port": 41184
-                }
-            }
+            messagebox.showerror("Error", "Invalid JSON in config.json")
+            return None
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load config.json: {str(e)}")
+            return None
         
     def detect_kobo_devices(self):
         """Detect connected Kobo devices and update the dropdown."""
@@ -680,7 +688,11 @@ class KoboToJoplinApp:
                 json.dump(self.config, f, indent=4)
             
             # Reinitialize Joplin API with new token
-            self.joplin = ClientApi(token=self.config['joplin_api_token'])
+            self.joplin = ClientApi(
+                token=self.config['joplin_api_token'],
+                base_url=self.config['web_clipper']['url'],
+                port=self.config['web_clipper']['port']
+            )
             
             settings_window.destroy()
             messagebox.showinfo("Success", "Settings saved successfully!")
