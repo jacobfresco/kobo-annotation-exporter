@@ -25,14 +25,19 @@ class KoboToJoplinApp:
         
         # Load configuration
         self.config = self.load_config()
+        if not self.config:  # If config loading failed
+            self.root.destroy()
+            return
         
         # Check Joplin service and API token
         if not self.check_joplin_service():
             messagebox.showerror("Error", "Could not connect to Joplin Web Clipper service. Please make sure Joplin is running and the Web Clipper is enabled.")
+            self.root.destroy()
             return
             
         if not self.validate_api_token():
             messagebox.showerror("Error", "Invalid Joplin API token. Please check your configuration.")
+            self.root.destroy()
             return
         
         # Initialize Joplin API
