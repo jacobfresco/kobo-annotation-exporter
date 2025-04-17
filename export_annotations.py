@@ -29,14 +29,19 @@ class KoboToJoplinApp:
         # Check Joplin service and API token
         if not self.check_joplin_service():
             messagebox.showerror("Error", "Could not connect to Joplin Web Clipper service. Please make sure Joplin is running and the Web Clipper is enabled.")
+            self.root.destroy()
             return
             
         if not self.validate_api_token():
             messagebox.showerror("Error", "Invalid Joplin API token. Please check your configuration.")
+            self.root.destroy()
             return
         
         # Initialize Joplin API
         self.joplin = ClientApi(token=self.config['joplin_api_token'])
+        
+        # Store current devices
+        self.current_devices = set()
         
         # Setup UI
         self.setup_ui()
@@ -46,6 +51,9 @@ class KoboToJoplinApp:
         
         # Detect Kobo devices
         self.detect_kobo_devices()
+        
+        # Start periodic device detection
+        self.check_for_device_changes()
         
     def check_joplin_service(self):
         """Check if Joplin Web Clipper service is running."""
@@ -139,14 +147,27 @@ class KoboToJoplinApp:
             except:
                 continue
         
-        # Update dropdown
-        self.device_dropdown['values'] = self.kobo_devices
-        if self.kobo_devices:
-            self.device_dropdown.set(self.kobo_devices[0])
-            self.load_books()
-        else:
-            self.device_dropdown.set("No Kobo device detected")
+        # Store current set of devices
+        new_devices = set(self.kobo_devices)
+        
+        # Update dropdown only if the device list has changed
+        if new_devices != self.current_devices:
+            self.current_devices = new_devices
+            self.device_dropdown['values'] = self.kobo_devices
+            if self.kobo_devices:
+                # Only set the first device if no device is currently selected
+                if not self.device_dropdown.get() or self.device_dropdown.get() == "No Kobo device detected":
+                    self.device_dropdown.set(self.kobo_devices[0])
+                    self.load_books()
+            else:
+                self.device_dropdown.set("No Kobo device detected")
             
+    def check_for_device_changes(self):
+        """Periodically check for device changes."""
+        self.detect_kobo_devices()
+        # Schedule the next check in 2 seconds
+        self.root.after(2000, self.check_for_device_changes)
+        
     def setup_ui(self):
         """Setup the user interface."""
         # Create main frame
