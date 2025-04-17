@@ -482,7 +482,13 @@ class KoboToJoplinApp:
                 # Check if note exists
                 note_title = f"{book_title} - {author}"
                 notes = self.joplin.search_all(query=note_title, type_="note")
-                existing_note = notes[0] if notes else None
+                
+                # Only consider the note if it's in our configured notebook
+                existing_note = None
+                for note in notes:
+                    if note.parent_id == self.config['notebook_id']:
+                        existing_note = note
+                        break
                 
                 # Prepare content for all annotations
                 all_content = []
