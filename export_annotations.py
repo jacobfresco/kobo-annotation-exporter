@@ -19,7 +19,14 @@ class KoboToJoplinApp:
         self.root.title("Kobo to Joplin Annotation Exporter")
         
         # Set window icon
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        icon_path = os.path.join(base_path, 'icon.ico')
         if os.path.exists(icon_path):
             self.root.iconbitmap(icon_path)
         
