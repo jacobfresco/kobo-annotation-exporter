@@ -19,12 +19,22 @@ class KoboToJoplinApp:
         self.root.title("Kobo to Joplin Annotation Exporter")
         
         # Set window icon
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        icon_path = os.path.join(base_path, 'icon.ico')
         if os.path.exists(icon_path):
             self.root.iconbitmap(icon_path)
         
         # Load configuration
         self.config = self.load_config()
+        if not self.config:  # If config loading failed
+            self.root.destroy()
+            return
         
         # Check Joplin service and API token
         if not self.check_joplin_service():
@@ -503,7 +513,13 @@ class KoboToJoplinApp:
                 # Check if note exists
                 note_title = f"{book_title} - {author}"
                 notes = self.joplin.search_all(query=note_title, type_="note")
-                existing_note = notes[0] if notes else None
+                
+                # Only consider the note if it's in our configured notebook
+                existing_note = None
+                for note in notes:
+                    if note.parent_id == self.config['notebook_id']:
+                        existing_note = note
+                        break
                 
                 # Prepare content for all annotations
                 all_content = []
