@@ -1071,6 +1071,18 @@ class KoboToJoplinApp:
         preview_window = tk.Toplevel(self.root)
         preview_window.title(f"Preview - Bookmark {bookmark_id}")
         
+        # Set window icon
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        icon_path = os.path.join(base_path, 'icon.ico')
+        if os.path.exists(icon_path):
+            preview_window.iconbitmap(icon_path)
+        
         # Make the preview window modal and keep it on top
         preview_window.transient(self.root)
         preview_window.grab_set()
@@ -1115,6 +1127,32 @@ class KoboToJoplinApp:
         def export_and_close():
             print(f"Exporting bookmark {bookmark_id} to Joplin...")  # Debug log
             try:
+                # Get book title and author from the database
+                db_path = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "KoboReader.sqlite")
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # Query to get book title and author
+                query = """
+                    SELECT 
+                        BookContent.Title,
+                        BookContent.Attribution
+                    FROM Bookmark
+                    JOIN Content ON Bookmark.ContentID = Content.ContentID
+                    JOIN Content as BookContent ON Content.BookID = BookContent.ContentID
+                    WHERE Bookmark.BookmarkID = ?
+                """
+                
+                cursor.execute(query, (bookmark_id,))
+                result = cursor.fetchone()
+                conn.close()
+                
+                if not result:
+                    raise Exception("Could not find book information")
+                
+                book_title = result[0] or "Unknown Title"
+                author = result[1] or "Unknown Author"
+                
                 # Save the image to a temporary file
                 temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
                 print(f"Saving image to: {temp_path}")  # Debug log
@@ -1128,9 +1166,9 @@ class KoboToJoplinApp:
                 )
                 
                 print("Creating note in Joplin...")  # Debug log
-                # Create a new note with the image
+                # Create a new note with the image using the same title format as other annotations
                 self.joplin.add_note(
-                    title=f"Preview Export - {bookmark_id}",
+                    title=f"{book_title} - {author}",
                     body=f"![Markup with Page](:/{resource_id})",
                     parent_id=self.config['notebook_id']
                 )
