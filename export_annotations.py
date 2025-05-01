@@ -16,6 +16,18 @@ import ebooklib
 from ebooklib import epub
 from PIL import Image
 import io
+import tempfile
+from weasyprint import HTML, CSS
+from weasyprint.text.fonts import FontConfiguration
+import cairosvg
+import base64
+import re
+from bs4 import BeautifulSoup
+import cssutils
+import logging
+
+# Disable cssutils logging
+cssutils.log.setLevel(logging.CRITICAL)
 
 class KoboToJoplinApp:
     def __init__(self, root):
@@ -502,7 +514,6 @@ class KoboToJoplinApp:
             book = epub.read_epub(epub_path)
             
             # Parse the content ID to get the chapter and position
-            # ContentID format is typically "path/to/epub.epub#chapter-number"
             try:
                 chapter_id = content_id.split('#')[1] if '#' in content_id else content_id
                 chapter_num = int(chapter_id.split('-')[0])
@@ -518,19 +529,112 @@ class KoboToJoplinApp:
                 
             chapter = items[chapter_num]
             
-            # Convert chapter content to image
-            # Note: This is a simplified version. In reality, you would need to:
-            # 1. Parse the HTML content
-            # 2. Use a proper HTML renderer (like QtWebEngine or similar)
-            # 3. Render the page with proper styling
-            # 4. Convert the rendered page to an image
+            # Get the chapter content as HTML
+            html_content = chapter.get_content().decode('utf-8')
             
-            # For now, we'll create a placeholder image
-            img = Image.new('RGB', (800, 1200), color='white')
-            return img
+            # Parse HTML with BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Extract and inline CSS
+            styles = soup.find_all('style')
+            css_text = ''
+            for style in styles:
+                css_text += style.string + '\n'
+            
+            # Create a temporary directory for assets
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Process images in the HTML
+                for img in soup.find_all('img'):
+                    if img.get('src'):
+                        # Get the image data from the EPUB
+                        img_path = img['src']
+                        img_item = book.get_item_with_href(img_path)
+                        if img_item:
+                            # Convert image to base64
+                            img_data = img_item.get_content()
+                            img_b64 = base64.b64encode(img_data).decode('utf-8')
+                            img['src'] = f"data:image/png;base64,{img_b64}"
+                
+                # Create a complete HTML document
+                html_doc = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {{
+                            margin: 0;
+                            padding: 20px;
+                            font-family: Arial, sans-serif;
+                            line-height: 1.6;
+                            color: #333;
+                        }}
+                        img {{
+                            max-width: 100%;
+                            height: auto;
+                        }}
+                        {css_text}
+                    </style>
+                </head>
+                <body>
+                    {soup.body.decode_contents() if soup.body else soup.decode_contents()}
+                </body>
+                </html>
+                """
+                
+                # Configure fonts
+                font_config = FontConfiguration()
+                
+                # Create PDF with WeasyPrint
+                pdf = HTML(string=html_doc).write_pdf(
+                    stylesheets=[CSS(string='''
+                        @page {
+                            size: 800px 1200px;
+                            margin: 0;
+                        }
+                    ''')],
+                    font_config=font_config
+                )
+                
+                # Convert PDF to PNG using Cairo
+                png_data = cairosvg.pdf2png(pdf)
+                
+                # Convert to PIL Image
+                img = Image.open(io.BytesIO(png_data))
+                
+                return img
             
         except Exception as e:
             print(f"Error extracting page from EPUB: {str(e)}")
+            return None
+
+    def merge_markup_with_page(self, markup_path, page_image):
+        """Merge a markup image with a page image."""
+        try:
+            # Open the markup image
+            markup_img = Image.open(markup_path)
+            
+            # Convert both images to RGBA if they aren't already
+            markup_img = markup_img.convert('RGBA')
+            page_image = page_image.convert('RGBA')
+            
+            # Resize markup to match page dimensions if needed
+            if markup_img.size != page_image.size:
+                markup_img = markup_img.resize(page_image.size, Image.Resampling.LANCZOS)
+            
+            # Create a new image with the same size as the page
+            merged_img = Image.new('RGBA', page_image.size, (255, 255, 255, 0))
+            
+            # Paste the page image
+            merged_img.paste(page_image, (0, 0))
+            
+            # Paste the markup on top
+            merged_img.paste(markup_img, (0, 0), markup_img)
+            
+            return merged_img
+            
+        except Exception as e:
+            print(f"Error merging markup with page: {str(e)}")
             return None
 
     def export_to_joplin(self):
@@ -646,7 +750,45 @@ class KoboToJoplinApp:
                         
                         if markup_file:
                             try:
-                                # Add the resource
+                                # If we have the EPUB path, try to get the page image and merge it
+                                if epub_path:
+                                    full_epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
+                                    if os.path.exists(full_epub_path):
+                                        page_image = self.get_page_image(full_epub_path, bookmark_content_id)
+                                        if page_image:
+                                            # Merge markup with page image
+                                            merged_image = self.merge_markup_with_page(markup_file, page_image)
+                                            if merged_image:
+                                                # Save the merged image to a temporary file
+                                                temp_merged_path = os.path.join(os.path.dirname(full_epub_path), f"merged_{bookmark_id}.png")
+                                                merged_image.save(temp_merged_path)
+                                                
+                                                # Add the merged image as a resource
+                                                resource_id = self.joplin.add_resource(
+                                                    filename=temp_merged_path,
+                                                    title=f"Markup with Page {bookmark_content_id}"
+                                                )
+                                                
+                                                # Create the content with timestamp
+                                                markup_content = f"![Markup with Page](:/{resource_id})"
+                                                if annotation_text and 'Associated Text:' in annotation_text:
+                                                    associated_text = annotation_text.split('Associated Text:')[1].strip()
+                                                    markup_content += f"\n{associated_text}"
+                                                
+                                                content.append(markup_content)
+                                                
+                                                # Link the resource to the note
+                                                if existing_note:
+                                                    self.joplin.add_resource_to_note(
+                                                        resource_id=resource_id,
+                                                        note_id=existing_note.id
+                                                    )
+                                                
+                                                # Clean up the temporary file
+                                                os.remove(temp_merged_path)
+                                                continue
+                                
+                                # If merging failed or no page image, fall back to original markup
                                 resource_id = self.joplin.add_resource(
                                     filename=markup_file,
                                     title=os.path.basename(markup_file)
@@ -670,40 +812,6 @@ class KoboToJoplinApp:
                             except Exception as e:
                                 print(f"Debug: Error uploading markup file: {str(e)}")
                                 content.append("[Error attaching markup file]")
-                                
-                        # If we have the EPUB path, try to get the page image
-                        if epub_path:
-                            full_epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
-                            if os.path.exists(full_epub_path):
-                                page_image = self.get_page_image(full_epub_path, bookmark_content_id)
-                                if page_image:
-                                    try:
-                                        # Save the image to a temporary file
-                                        temp_img_path = os.path.join(os.path.dirname(full_epub_path), f"temp_page_{bookmark_id}.png")
-                                        page_image.save(temp_img_path)
-                                        
-                                        # Add the page image as a resource
-                                        page_resource_id = self.joplin.add_resource(
-                                            filename=temp_img_path,
-                                            title=f"Page {bookmark_content_id}"
-                                        )
-                                        
-                                        # Add the page image to the content
-                                        content.append(f"\n![Page](:/{page_resource_id})")
-                                        
-                                        # Link the resource to the note
-                                        if existing_note:
-                                            self.joplin.add_resource_to_note(
-                                                resource_id=page_resource_id,
-                                                note_id=existing_note.id
-                                            )
-                                        
-                                        # Clean up the temporary file
-                                        os.remove(temp_img_path)
-                                        
-                                    except Exception as e:
-                                        print(f"Debug: Error uploading page image: {str(e)}")
-                                        content.append("[Error attaching page image]")
                     else:
                         # Regular annotation - wrap in code block
                         if annotation_text:  # Only add if there's actual text
