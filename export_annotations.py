@@ -502,9 +502,10 @@ class KoboToJoplinApp:
             book = epub.read_epub(epub_path)
             
             # Parse the content ID to get the chapter and position
-            # ContentID format is typically "chapter-number"
+            # ContentID format is typically "path/to/epub.epub#chapter-number"
             try:
-                chapter_num = int(content_id.split('-')[0])
+                chapter_id = content_id.split('#')[1] if '#' in content_id else content_id
+                chapter_num = int(chapter_id.split('-')[0])
             except (ValueError, IndexError):
                 print(f"Invalid content ID format: {content_id}")
                 return None
@@ -569,7 +570,8 @@ class KoboToJoplinApp:
                         ELSE ''
                     END as ChapterTitle,
                     Bookmark.Type,
-                    Bookmark.DateCreated
+                    Bookmark.DateCreated,
+                    Content.ContentID as EpubPath
                 FROM Bookmark
                 JOIN Content ON Bookmark.ContentID = Content.ContentID
                 JOIN Content as BookContent ON Content.BookID = BookContent.ContentID
@@ -586,7 +588,7 @@ class KoboToJoplinApp:
             
             if results:
                 # Locate the EPUB file
-                epub_path = self.locate_epub_file(book_title, author)
+                epub_path = results[0][6]  # This is the full path to the EPUB file
                 
                 # Check if note exists
                 note_title = f"{book_title} - {author}"
@@ -669,37 +671,39 @@ class KoboToJoplinApp:
                                 print(f"Debug: Error uploading markup file: {str(e)}")
                                 content.append("[Error attaching markup file]")
                                 
-                        # If we have the EPUB file, try to get the page image
+                        # If we have the EPUB path, try to get the page image
                         if epub_path:
-                            page_image = self.get_page_image(epub_path, bookmark_content_id)
-                            if page_image:
-                                try:
-                                    # Save the image to a temporary file
-                                    temp_img_path = os.path.join(os.path.dirname(epub_path), f"temp_page_{bookmark_id}.png")
-                                    page_image.save(temp_img_path)
-                                    
-                                    # Add the page image as a resource
-                                    page_resource_id = self.joplin.add_resource(
-                                        filename=temp_img_path,
-                                        title=f"Page {bookmark_content_id}"
-                                    )
-                                    
-                                    # Add the page image to the content
-                                    content.append(f"\n![Page](:/{page_resource_id})")
-                                    
-                                    # Link the resource to the note
-                                    if existing_note:
-                                        self.joplin.add_resource_to_note(
-                                            resource_id=page_resource_id,
-                                            note_id=existing_note.id
+                            full_epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
+                            if os.path.exists(full_epub_path):
+                                page_image = self.get_page_image(full_epub_path, bookmark_content_id)
+                                if page_image:
+                                    try:
+                                        # Save the image to a temporary file
+                                        temp_img_path = os.path.join(os.path.dirname(full_epub_path), f"temp_page_{bookmark_id}.png")
+                                        page_image.save(temp_img_path)
+                                        
+                                        # Add the page image as a resource
+                                        page_resource_id = self.joplin.add_resource(
+                                            filename=temp_img_path,
+                                            title=f"Page {bookmark_content_id}"
                                         )
-                                    
-                                    # Clean up the temporary file
-                                    os.remove(temp_img_path)
-                                    
-                                except Exception as e:
-                                    print(f"Debug: Error uploading page image: {str(e)}")
-                                    content.append("[Error attaching page image]")
+                                        
+                                        # Add the page image to the content
+                                        content.append(f"\n![Page](:/{page_resource_id})")
+                                        
+                                        # Link the resource to the note
+                                        if existing_note:
+                                            self.joplin.add_resource_to_note(
+                                                resource_id=page_resource_id,
+                                                note_id=existing_note.id
+                                            )
+                                        
+                                        # Clean up the temporary file
+                                        os.remove(temp_img_path)
+                                        
+                                    except Exception as e:
+                                        print(f"Debug: Error uploading page image: {str(e)}")
+                                        content.append("[Error attaching page image]")
                     else:
                         # Regular annotation - wrap in code block
                         if annotation_text:  # Only add if there's actual text
