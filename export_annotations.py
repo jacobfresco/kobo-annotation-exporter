@@ -609,71 +609,87 @@ class KoboToJoplinApp:
             # Parse the content ID to get the chapter and position
             try:
                 # Handle KEPUB format
-                if '!!text/' in content_id or '!OEBPS!Text/' in content_id:
+                if '!!text/' in content_id or '!OEBPS!Text/' in content_id or '!!index_split_' in content_id:
                     print(f"Processing KEPUB content ID: {content_id}")  # Debug log
-                    # Extract the chapter number from the part number
+                    # Extract the chapter number from either part number or index split
                     part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
+                    index_match = re.search(r'index_split_(\d+)\.html', content_id)
+                    
                     if part_match:
                         chapter_num = int(part_match.group(1))
-                        position = 0  # Position is not available in this format
-                        print(f"Found chapter number: {chapter_num}")  # Debug log
-                        
-                        # For KEPUB, we need to find the specific chapter file
-                        chapter_path = None
-                        print("Searching for chapter file...")  # Debug log
-                        
-                        # Get all document items and sort them by their href
-                        doc_items = []
-                        print("Available chapters in EPUB:")  # Debug log
-                        for item in book.get_items():
-                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                                href = item.get_name()
-                                print(f"Found document: {href}")  # Debug log
-                                # For KEPUB, we need to handle both !!text/ and text/ paths
-                                if 'text/' in href:  # Changed from !!text/ to text/
-                                    doc_items.append(item)
-                                    print(f"Added KEPUB chapter: {href}")  # Debug log
-                        
-                        print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
-                        
-                        # Sort by the part number in the filename
-                        def get_part_number(item):
-                            href = item.get_name()
-                            # Updated regex to handle both !!text/ and text/ paths
-                            match = re.search(r'part(\d+)\.(?:xhtml|html)', href)
-                            if match:
-                                part_num = int(match.group(1))
-                                print(f"Found part number {part_num} in {href}")  # Debug log
-                                return part_num
-                            print(f"No part number found in {href}")  # Debug log
-                            return 0
-                        
-                        doc_items.sort(key=get_part_number)
-                        
-                        # Find the chapter by its part number
-                        chapter = None
-                        print(f"Looking for chapter with part number {chapter_num}")  # Debug log
-                        for item in doc_items:
-                            href = item.get_name()
-                            match = re.search(r'part(\d+)\.(?:xhtml|html)', href)
-                            if match:
-                                current_part = int(match.group(1))
-                                print(f"Checking chapter {current_part}")  # Debug log
-                                if current_part == chapter_num:
-                                    chapter = item
-                                    print(f"Found matching chapter: {href}")  # Debug log
-                                    break
-                        
-                        if chapter:
-                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
-                        else:
-                            print(f"Could not find chapter with part number {chapter_num}")
-                            return None
-                            
-                        print(f"Successfully loaded chapter content")  # Debug log
+                    elif index_match:
+                        chapter_num = int(index_match.group(1))
                     else:
                         print(f"Could not extract chapter number from content ID: {content_id}")
                         return None
+                        
+                    position = 0  # Position is not available in this format
+                    print(f"Found chapter number: {chapter_num}")  # Debug log
+                    
+                    # For KEPUB, we need to find the specific chapter file
+                    chapter_path = None
+                    print("Searching for chapter file...")  # Debug log
+                    
+                    # Get all document items and sort them by their href
+                    doc_items = []
+                    print("Available chapters in EPUB:")  # Debug log
+                    for item in book.get_items():
+                        if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                            href = item.get_name()
+                            print(f"Found document: {href}")  # Debug log
+                            # For KEPUB, we need to handle both !!text/, text/, and index_split paths
+                            if any(x in href.lower() for x in ['text/', 'index_split_']):
+                                doc_items.append(item)
+                                print(f"Added KEPUB chapter: {href}")  # Debug log
+                    
+                    print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
+                    
+                    # Sort by the part number or index number in the filename
+                    def get_chapter_number(item):
+                        href = item.get_name()
+                        # Try to match part number first
+                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', href, re.IGNORECASE)
+                        if part_match:
+                            return int(part_match.group(1))
+                        # Then try to match index number
+                        index_match = re.search(r'index_split_(\d+)\.html', href, re.IGNORECASE)
+                        if index_match:
+                            return int(index_match.group(1))
+                        print(f"No chapter number found in {href}")  # Debug log
+                        return 0
+                    
+                    doc_items.sort(key=get_chapter_number)
+                    
+                    # Find the chapter by its number
+                    chapter = None
+                    print(f"Looking for chapter with number {chapter_num}")  # Debug log
+                    for item in doc_items:
+                        href = item.get_name()
+                        # Try to match part number first
+                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', href, re.IGNORECASE)
+                        if part_match:
+                            current_num = int(part_match.group(1))
+                        else:
+                            # Then try to match index number
+                            index_match = re.search(r'index_split_(\d+)\.html', href, re.IGNORECASE)
+                            if index_match:
+                                current_num = int(index_match.group(1))
+                            else:
+                                continue
+                            
+                        print(f"Checking chapter {current_num}")  # Debug log
+                        if current_num == chapter_num:
+                            chapter = item
+                            print(f"Found matching chapter: {href}")  # Debug log
+                            break
+                    
+                    if chapter:
+                        print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                    else:
+                        print(f"Could not find chapter with number {chapter_num}")
+                        return None
+                    
+                    print(f"Successfully loaded chapter content")  # Debug log
                 else:
                     # Handle regular EPUB format
                     print(f"Processing regular EPUB content ID: {content_id}")  # Debug log
@@ -932,21 +948,30 @@ class KoboToJoplinApp:
                     # /mnt/onboard/path/to/book.kepub.epub!OEBPS!Text/partXXXX.xhtml
                     # or
                     # /mnt/onboard/path/to/book.kepub.epub!!text/partXXXX.html
-                    if '!OEBPS!Text/' in content_id or '!!text/' in content_id:
-                        # Extract the chapter number from the part number
+                    # or
+                    # /mnt/onboard/path/to/book.kepub.epub!!index_split_XXX.html
+                    if '!OEBPS!Text/' in content_id or '!!text/' in content_id or '!!index_split_' in content_id:
+                        # Extract the chapter number from either part number or index split
                         part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
+                        index_match = re.search(r'index_split_(\d+)\.html', content_id)
+                        
                         if part_match:
                             chapter_num = int(part_match.group(1))
-                            position = 0  # Position is not available in this format
-                            
-                            # Extract the base EPUB path (everything before !OEBPS!Text/ or !!text/)
-                            if '!OEBPS!Text/' in content_id:
-                                epub_path = content_id.split('!OEBPS!Text/')[0]
-                            else:
-                                epub_path = content_id.split('!!text/')[0]
+                        elif index_match:
+                            chapter_num = int(index_match.group(1))
                         else:
                             print(f"Could not extract chapter number from content ID: {content_id}")
                             return None
+                            
+                        position = 0  # Position is not available in this format
+                        
+                        # Extract the base EPUB path (everything before !OEBPS!Text/, !!text/, or !!index_split_)
+                        if '!OEBPS!Text/' in content_id:
+                            epub_path = content_id.split('!OEBPS!Text/')[0]
+                        elif '!!text/' in content_id:
+                            epub_path = content_id.split('!!text/')[0]
+                        else:  # !!index_split_
+                            epub_path = content_id.split('!!index_split_')[0]
                     else:
                         # Original format: path/to/epub.epub#chapter-number-position
                         parts = content_id.split('#')
