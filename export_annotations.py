@@ -14,7 +14,7 @@ from datetime import datetime
 import sys
 import ebooklib
 from ebooklib import epub
-from PIL import Image
+from PIL import Image, ImageTk
 import io
 import tempfile
 from weasyprint import HTML, CSS
@@ -25,14 +25,106 @@ import re
 from bs4 import BeautifulSoup
 import cssutils
 import logging
+import imgkit
+import shutil
 
 # Disable cssutils logging
 cssutils.log.setLevel(logging.CRITICAL)
+
+def check_dependencies():
+    """Check if all required dependencies are installed and accessible."""
+    missing_deps = []
+    download_links = {
+        'wkhtmltopdf': 'https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox-0.12.6-1.msvc2015-win64.exe',
+        'Python packages': 'pip install -r requirements.txt'
+    }
+    
+    # Check Python packages
+    required_packages = {
+        'joppy': 'joppy',
+        'win32api': 'pywin32',
+        'requests': 'requests',
+        'ebooklib': 'ebooklib',
+        'PIL': 'Pillow',
+        'bs4': 'beautifulsoup4',
+        'cssutils': 'cssutils',
+        'imgkit': 'imgkit'
+    }
+    
+    for module, package in required_packages.items():
+        try:
+            __import__(module)
+        except ImportError:
+            missing_deps.append(f"Python package '{package}' is not installed")
+    
+    # Check wkhtmltopdf installation
+    wkhtmltopdf_path = shutil.which('wkhtmltopdf')
+    if not wkhtmltopdf_path:
+        missing_deps.append("wkhtmltopdf is not installed or not in PATH")
+    
+    return missing_deps, download_links
 
 class KoboToJoplinApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Kobo to Joplin Annotation Exporter")
+        
+        # Check dependencies first
+        missing_deps, download_links = check_dependencies()
+        if missing_deps:
+            error_msg = "The following dependencies are missing:\n\n" + "\n".join(missing_deps)
+            error_msg += "\n\nInstallation instructions:\n"
+            error_msg += "1. For Python packages, run: " + download_links['Python packages'] + "\n"
+            error_msg += "2. For wkhtmltopdf:\n"
+            error_msg += "   a. Download and install from: " + download_links['wkhtmltopdf'] + "\n"
+            error_msg += "   b. Add wkhtmltopdf to PATH:\n"
+            error_msg += "      - Open System Properties (Win + Pause/Break)\n"
+            error_msg += "      - Click 'Advanced system settings'\n"
+            error_msg += "      - Click 'Environment Variables'\n"
+            error_msg += "      - Under 'System variables', find and select 'Path'\n"
+            error_msg += "      - Click 'Edit' and add 'C:\\Program Files\\wkhtmltopdf\\bin'\n"
+            error_msg += "      - Click 'OK' on all windows\n"
+            error_msg += "   c. No restart required - just close and reopen this application\n"
+            error_msg += "\nAfter installing, please restart the application."
+            
+            # Create a more detailed error window
+            error_window = tk.Toplevel(self.root)
+            error_window.title("Missing Dependencies")
+            error_window.geometry("700x500")  # Made window larger to fit instructions
+            
+            # Add text widget with scrollbar
+            frame = ttk.Frame(error_window)
+            frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            text_widget = tk.Text(frame, wrap=tk.WORD)
+            scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text_widget.yview)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Insert error message
+            text_widget.insert(tk.END, error_msg)
+            text_widget.configure(state='disabled')  # Make read-only
+            
+            # Add buttons
+            button_frame = ttk.Frame(error_window)
+            button_frame.pack(fill=tk.X, pady=5)
+            
+            def open_download_link():
+                import webbrowser
+                webbrowser.open(download_links['wkhtmltopdf'])
+            
+            ttk.Button(button_frame, text="Download wkhtmltopdf", 
+                      command=open_download_link).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Close", 
+                      command=lambda: [error_window.destroy(), self.root.destroy()]).pack(side=tk.LEFT, padx=5)
+            
+            # Make the error window modal
+            error_window.transient(self.root)
+            error_window.grab_set()
+            self.root.wait_window(error_window)
+            return
         
         # Set window icon
         if getattr(sys, 'frozen', False):
@@ -510,29 +602,127 @@ class KoboToJoplinApp:
     def get_page_image(self, epub_path, content_id):
         """Extract a specific page from an EPUB file as an image."""
         try:
+            print(f"Reading EPUB file: {epub_path}")  # Debug log
             # Read the EPUB file
             book = epub.read_epub(epub_path)
             
             # Parse the content ID to get the chapter and position
             try:
-                chapter_id = content_id.split('#')[1] if '#' in content_id else content_id
-                chapter_num = int(chapter_id.split('-')[0])
-            except (ValueError, IndexError):
-                print(f"Invalid content ID format: {content_id}")
+                # Handle KEPUB format
+                if '!!text/' in content_id or '!OEBPS!Text/' in content_id:
+                    print(f"Processing KEPUB content ID: {content_id}")  # Debug log
+                    # Extract the chapter number from the part number
+                    part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
+                    if part_match:
+                        chapter_num = int(part_match.group(1))
+                        position = 0  # Position is not available in this format
+                        print(f"Found chapter number: {chapter_num}")  # Debug log
+                        
+                        # For KEPUB, we need to find the specific chapter file
+                        chapter_path = None
+                        print("Searching for chapter file...")  # Debug log
+                        
+                        # Get all document items and sort them by their href
+                        doc_items = []
+                        print("Available chapters in EPUB:")  # Debug log
+                        for item in book.get_items():
+                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                href = item.get_name()
+                                print(f"Found document: {href}")  # Debug log
+                                # For KEPUB, we need to handle both !!text/ and text/ paths
+                                if 'text/' in href:  # Changed from !!text/ to text/
+                                    doc_items.append(item)
+                                    print(f"Added KEPUB chapter: {href}")  # Debug log
+                        
+                        print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
+                        
+                        # Sort by the part number in the filename
+                        def get_part_number(item):
+                            href = item.get_name()
+                            # Updated regex to handle both !!text/ and text/ paths
+                            match = re.search(r'part(\d+)\.(?:xhtml|html)', href)
+                            if match:
+                                part_num = int(match.group(1))
+                                print(f"Found part number {part_num} in {href}")  # Debug log
+                                return part_num
+                            print(f"No part number found in {href}")  # Debug log
+                            return 0
+                        
+                        doc_items.sort(key=get_part_number)
+                        
+                        # Find the chapter by its part number
+                        chapter = None
+                        print(f"Looking for chapter with part number {chapter_num}")  # Debug log
+                        for item in doc_items:
+                            href = item.get_name()
+                            match = re.search(r'part(\d+)\.(?:xhtml|html)', href)
+                            if match:
+                                current_part = int(match.group(1))
+                                print(f"Checking chapter {current_part}")  # Debug log
+                                if current_part == chapter_num:
+                                    chapter = item
+                                    print(f"Found matching chapter: {href}")  # Debug log
+                                    break
+                        
+                        if chapter:
+                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                        else:
+                            print(f"Could not find chapter with part number {chapter_num}")
+                            return None
+                            
+                        print(f"Successfully loaded chapter content")  # Debug log
+                    else:
+                        print(f"Could not extract chapter number from content ID: {content_id}")
+                        return None
+                else:
+                    # Handle regular EPUB format
+                    print(f"Processing regular EPUB content ID: {content_id}")  # Debug log
+                    # ContentID format is typically "path/to/epub.epub#chapter-number-position"
+                    parts = content_id.split('#')
+                    if len(parts) > 1:
+                        chapter_info = parts[1]
+                        # Split by '-' to get chapter number and position
+                        chapter_parts = chapter_info.split('-')
+                        chapter_num = int(chapter_parts[0])
+                        # Position is optional, default to 0 if not present
+                        position = int(chapter_parts[1]) if len(chapter_parts) > 1 else 0
+                        
+                        # Get all document items and sort them
+                        doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
+                        doc_items.sort(key=lambda x: x.get_name())
+                        
+                        # Find the chapter by its position in the sorted list
+                        if 0 <= chapter_num - 1 < len(doc_items):
+                            chapter = doc_items[chapter_num - 1]
+                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                        else:
+                            print(f"Chapter number {chapter_num} out of range")
+                            return None
+                    else:
+                        chapter_num = int(content_id)
+                        position = 0
+                        # Get all document items and sort them
+                        doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
+                        doc_items.sort(key=lambda x: x.get_name())
+                        
+                        # Find the chapter by its position in the sorted list
+                        if 0 <= chapter_num - 1 < len(doc_items):
+                            chapter = doc_items[chapter_num - 1]
+                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                        else:
+                            print(f"Chapter number {chapter_num} out of range")
+                            return None
+            except (ValueError, IndexError) as e:
+                print(f"Invalid content ID format: {content_id}, error: {str(e)}")
                 return None
-            
-            # Get the chapter content
-            items = list(book.get_items())
-            if chapter_num >= len(items):
-                print(f"Chapter number {chapter_num} out of range")
-                return None
-                
-            chapter = items[chapter_num]
             
             # Get the chapter content as HTML
+            print("Getting chapter content as HTML...")  # Debug log
             html_content = chapter.get_content().decode('utf-8')
+            print(f"HTML content length: {len(html_content)}")  # Debug log
             
             # Parse HTML with BeautifulSoup
+            print("Parsing HTML with BeautifulSoup...")  # Debug log
             soup = BeautifulSoup(html_content, 'html.parser')
             
             # Extract and inline CSS
@@ -544,6 +734,7 @@ class KoboToJoplinApp:
             # Create a temporary directory for assets
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Process images in the HTML
+                print("Processing images in HTML...")  # Debug log
                 for img in soup.find_all('img'):
                     if img.get('src'):
                         # Get the image data from the EPUB
@@ -555,64 +746,132 @@ class KoboToJoplinApp:
                             img_b64 = base64.b64encode(img_data).decode('utf-8')
                             img['src'] = f"data:image/png;base64,{img_b64}"
                 
-                # Create a complete HTML document
+                # Create a complete HTML document with proper styling
+                print("Creating HTML document...")  # Debug log
                 html_doc = f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <meta charset="utf-8">
                     <style>
+                        @page {{
+                            size: 800px 1200px;
+                            margin: 0;
+                        }}
                         body {{
                             margin: 0;
                             padding: 20px;
                             font-family: Arial, sans-serif;
                             line-height: 1.6;
                             color: #333;
+                            width: 760px;
+                            height: 1160px;
+                            overflow: hidden;
+                            background: transparent;
                         }}
                         img {{
                             max-width: 100%;
                             height: auto;
                         }}
+                        p {{
+                            margin: 0 0 1em 0;
+                        }}
+                        h1, h2, h3, h4, h5, h6 {{
+                            margin: 1em 0 0.5em 0;
+                        }}
+                        /* Add position marker for debugging */
+                        .position-marker {{
+                            position: absolute;
+                            left: 0;
+                            top: {position * 100}px;
+                            width: 100%;
+                            height: 2px;
+                            background-color: red;
+                            opacity: 0.5;
+                        }}
                         {css_text}
                     </style>
                 </head>
                 <body>
+                    <div class="position-marker"></div>
                     {soup.body.decode_contents() if soup.body else soup.decode_contents()}
                 </body>
                 </html>
                 """
                 
-                # Configure fonts
-                font_config = FontConfiguration()
-                
-                # Create PDF with WeasyPrint
-                pdf = HTML(string=html_doc).write_pdf(
-                    stylesheets=[CSS(string='''
-                        @page {
-                            size: 800px 1200px;
-                            margin: 0;
-                        }
-                    ''')],
-                    font_config=font_config
-                )
-                
-                # Convert PDF to PNG using Cairo
-                png_data = cairosvg.pdf2png(pdf)
-                
-                # Convert to PIL Image
-                img = Image.open(io.BytesIO(png_data))
-                
-                return img
+                try:
+                    print("Rendering HTML to PNG...")  # Debug log
+                    # Create PNG directly from HTML using imgkit
+                    png_path = os.path.join(temp_dir, 'temp.png')
+                    html_path = os.path.join(temp_dir, 'temp.html')
+                    
+                    # Save HTML to temporary file
+                    with open(html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_doc)
+                    
+                    # Configure imgkit options
+                    options = {
+                        'format': 'png',
+                        'encoding': 'UTF-8',
+                        'width': 800,
+                        'height': 1200,
+                        'enable-local-file-access': None,
+                        'disable-smart-width': None,
+                        'quiet': None
+                    }
+                    
+                    # Convert HTML to PNG using the file path
+                    imgkit.from_file(html_path, png_path, options=options)
+                    
+                    # Open the PNG file
+                    img = Image.open(png_path)
+                    
+                    # Ensure the image is in RGB mode
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    print("Successfully created page image")  # Debug log
+                    return img
+                    
+                except Exception as e:
+                    print(f"Error rendering page: {str(e)}")
+                    # Return a placeholder image with error message
+                    img = Image.new('RGB', (800, 1200), color='white')
+                    return img
             
         except Exception as e:
             print(f"Error extracting page from EPUB: {str(e)}")
-            return None
+            # Return a placeholder image with error message
+            img = Image.new('RGB', (800, 1200), color='white')
+            return img
 
     def merge_markup_with_page(self, markup_path, page_image):
         """Merge a markup image with a page image."""
         try:
-            # Open the markup image
-            markup_img = Image.open(markup_path)
+            # Convert SVG to PNG if needed
+            if markup_path.lower().endswith('.svg'):
+                # Read SVG file
+                with open(markup_path, 'rb') as f:
+                    svg_data = f.read()
+                
+                # Create a temporary file for the PNG
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                # Convert SVG to PNG using cairosvg
+                cairosvg.svg2png(bytestring=svg_data, write_to=temp_path)
+                
+                # Open the converted PNG
+                markup_img = Image.open(temp_path)
+                
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    print(f"Warning: Could not delete temporary file {temp_path}: {str(e)}")
+            else:
+                # Open the markup image directly if it's not SVG
+                markup_img = Image.open(markup_path)
             
             # Convert both images to RGBA if they aren't already
             markup_img = markup_img.convert('RGBA')
@@ -628,8 +887,11 @@ class KoboToJoplinApp:
             # Paste the page image
             merged_img.paste(page_image, (0, 0))
             
-            # Paste the markup on top
-            merged_img.paste(markup_img, (0, 0), markup_img)
+            # Paste the markup on top with alpha compositing
+            merged_img = Image.alpha_composite(merged_img, markup_img)
+            
+            # Convert back to RGB for saving
+            merged_img = merged_img.convert('RGB')
             
             return merged_img
             
@@ -637,11 +899,203 @@ class KoboToJoplinApp:
             print(f"Error merging markup with page: {str(e)}")
             return None
 
+    def get_annotation_position(self, db_path, bookmark_id):
+        """Get the exact position information for an annotation from the Kobo database."""
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Query to get position information
+            query = """
+                SELECT 
+                    Bookmark.ContentID,
+                    Bookmark.Annotation,
+                    Bookmark.Text,
+                    Content.ContentID as EpubPath
+                FROM Bookmark
+                JOIN Content ON Bookmark.ContentID = Content.ContentID
+                WHERE Bookmark.BookmarkID = ?
+            """
+            
+            cursor.execute(query, (bookmark_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                content_id = result[0]
+                annotation = result[1]
+                text = result[2]
+                epub_path = result[3]
+                
+                # Parse the content ID to get position
+                try:
+                    # For kepub files, the content ID format is either:
+                    # /mnt/onboard/path/to/book.kepub.epub!OEBPS!Text/partXXXX.xhtml
+                    # or
+                    # /mnt/onboard/path/to/book.kepub.epub!!text/partXXXX.html
+                    if '!OEBPS!Text/' in content_id or '!!text/' in content_id:
+                        # Extract the chapter number from the part number
+                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
+                        if part_match:
+                            chapter_num = int(part_match.group(1))
+                            position = 0  # Position is not available in this format
+                            
+                            # Extract the base EPUB path (everything before !OEBPS!Text/ or !!text/)
+                            if '!OEBPS!Text/' in content_id:
+                                epub_path = content_id.split('!OEBPS!Text/')[0]
+                            else:
+                                epub_path = content_id.split('!!text/')[0]
+                        else:
+                            print(f"Could not extract chapter number from content ID: {content_id}")
+                            return None
+                    else:
+                        # Original format: path/to/epub.epub#chapter-number-position
+                        parts = content_id.split('#')
+                        if len(parts) > 1:
+                            chapter_info = parts[1]
+                            # Split by '-' to get chapter number and position
+                            chapter_parts = chapter_info.split('-')
+                            chapter_num = int(chapter_parts[0])
+                            # Position is optional, default to 0 if not present
+                            position = int(chapter_parts[1]) if len(chapter_parts) > 1 else 0
+                            epub_path = parts[0]  # The EPUB path is everything before the #
+                        else:
+                            chapter_num = int(content_id)
+                            position = 0
+                        
+                    return {
+                        'chapter_num': chapter_num,
+                        'position': position,
+                        'content_id': content_id,
+                        'epub_path': epub_path,
+                        'annotation': annotation,
+                        'text': text
+                    }
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing content ID: {content_id}, error: {str(e)}")
+                    return None
+                    
+            return None
+            
+        except Exception as e:
+            print(f"Error getting annotation position: {str(e)}")
+            return None
+        finally:
+            if conn:
+                conn.close()
+
+    def preview_combined_image(self, image, bookmark_id):
+        """Show a preview window for the combined image."""
+        print(f"Creating preview window for bookmark {bookmark_id}...")  # Debug log
+        preview_window = tk.Toplevel(self.root)
+        preview_window.title(f"Preview - Bookmark {bookmark_id}")
+        
+        # Get screen dimensions
+        screen_width = preview_window.winfo_screenwidth()
+        screen_height = preview_window.winfo_screenheight()
+        
+        # Calculate window size (80% of screen)
+        window_width = int(screen_width * 0.8)
+        window_height = int(screen_height * 0.8)
+        
+        # Calculate position to center the window
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        preview_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        # Create a canvas with scrollbars
+        frame = ttk.Frame(preview_window)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        canvas = tk.Canvas(frame)
+        scrollbar_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=canvas.yview)
+        scrollbar_x = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=canvas.xview)
+        
+        # Configure canvas
+        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        
+        # Pack scrollbars and canvas
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        print("Converting image for preview...")  # Debug log
+        # Convert PIL image to PhotoImage
+        # Resize image to fit window while maintaining aspect ratio
+        img_width, img_height = image.size
+        scale = min(window_width/img_width, window_height/img_height)
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+        resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        photo = ImageTk.PhotoImage(resized_image)
+        
+        # Add image to canvas
+        canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+        canvas.image = photo  # Keep a reference
+        
+        # Configure canvas scrolling region
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        # Add buttons
+        button_frame = ttk.Frame(preview_window)
+        button_frame.pack(fill=tk.X, pady=5)
+        
+        def export_and_close():
+            print(f"Exporting bookmark {bookmark_id} to Joplin...")  # Debug log
+            self.export_image_to_joplin(image, bookmark_id, preview_window)
+        
+        ttk.Button(button_frame, text="Export to Joplin", 
+                  command=export_and_close).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", 
+                  command=preview_window.destroy).pack(side=tk.LEFT, padx=5)
+        
+        print("Preview window created successfully")  # Debug log
+
+    def export_image_to_joplin(self, image, bookmark_id, preview_window):
+        """Export the previewed image to Joplin."""
+        print(f"Starting export to Joplin for bookmark {bookmark_id}...")  # Debug log
+        try:
+            # Save the image to a temporary file
+            temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
+            print(f"Saving image to: {temp_path}")  # Debug log
+            image.save(temp_path)
+            
+            print("Adding image as resource to Joplin...")  # Debug log
+            # Add the image as a resource
+            resource_id = self.joplin.add_resource(
+                filename=temp_path,
+                title=f"Markup with Page {bookmark_id}"
+            )
+            
+            print("Creating note in Joplin...")  # Debug log
+            # Create a new note with the image
+            self.joplin.add_note(
+                title=f"Preview Export - {bookmark_id}",
+                body=f"![Markup with Page](:/{resource_id})",
+                parent_id=self.config['notebook_id']
+            )
+            
+            print("Export completed successfully")  # Debug log
+            messagebox.showinfo("Success", "Image exported to Joplin successfully!")
+            preview_window.destroy()
+            
+        except Exception as e:
+            print(f"Error during export: {str(e)}")  # Debug log
+            messagebox.showerror("Error", f"Failed to export to Joplin: {str(e)}")
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                print(f"Cleaning up temporary file: {temp_path}")  # Debug log
+                os.remove(temp_path)
+
     def export_to_joplin(self):
         selected_items = self.tree.selection()
         if not selected_items:
             messagebox.showwarning("Warning", "Please select annotations to export")
             return
+            
+        print("Starting export process...")  # Debug log
             
         # Group annotations by book
         annotations_by_book = {}
@@ -650,51 +1104,96 @@ class KoboToJoplinApp:
             book_title = values[0]
             author = values[1]
             bookmark_id = values[4]
+            annotation_type = values[5]  # Get the annotation type
+            
+            print(f"Processing annotation: {bookmark_id}, type: {annotation_type}")  # Debug log
             
             if (book_title, author) not in annotations_by_book:
                 annotations_by_book[(book_title, author)] = []
-            annotations_by_book[(book_title, author)].append(bookmark_id)
+            annotations_by_book[(book_title, author)].append((bookmark_id, annotation_type))
             
         # Process each book's annotations
-        for (book_title, author), bookmark_ids in annotations_by_book.items():
+        for (book_title, author), bookmark_info in annotations_by_book.items():
+            print(f"\nProcessing book: {book_title} by {author}")  # Debug log
+            
             # Get the original annotation data from the database
             db_path = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "KoboReader.sqlite")
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
             
-            # Get all annotations for this book in one query
-            query = """
-                SELECT 
-                    Bookmark.Text,
-                    Bookmark.BookmarkID,
-                    Bookmark.ContentID,
-                    CASE 
-                        WHEN Bookmark.Type = 'markup' THEN 'Markup'
-                        WHEN Chapter.Title IS NOT NULL THEN Chapter.Title
-                        ELSE ''
-                    END as ChapterTitle,
-                    Bookmark.Type,
-                    Bookmark.DateCreated,
-                    Content.ContentID as EpubPath
-                FROM Bookmark
-                JOIN Content ON Bookmark.ContentID = Content.ContentID
-                JOIN Content as BookContent ON Content.BookID = BookContent.ContentID
-                LEFT JOIN Content as Chapter ON Chapter.ContentID LIKE Bookmark.ContentID || '-%'
-                    AND CAST(SUBSTR(Chapter.ContentID, INSTR(Chapter.ContentID, '-') + 1) AS INTEGER) IS NOT NULL
-                WHERE BookContent.Title = ? 
-                AND BookContent.Attribution = ?
-                AND Bookmark.BookmarkID IN ({})
-                ORDER BY Bookmark.DateCreated
-            """.format(','.join(['?'] * len(bookmark_ids)))
+            # Prepare content for all annotations
+            all_content = []
             
-            cursor.execute(query, [book_title, author] + bookmark_ids)
-            results = cursor.fetchall()
-            
-            if results:
-                # Locate the EPUB file
-                epub_path = results[0][6]  # This is the full path to the EPUB file
+            for bookmark_id, annotation_type in bookmark_info:
+                print(f"\nProcessing bookmark: {bookmark_id}, type: {annotation_type}")  # Debug log
                 
-                # Check if note exists
+                # Get position information for this annotation
+                position_info = self.get_annotation_position(db_path, bookmark_id)
+                if not position_info:
+                    print(f"Could not get position information for bookmark {bookmark_id}")
+                    continue
+                
+                print(f"Position info: {position_info}")  # Debug log
+                
+                # Get the page image with the correct position
+                # Strip /mnt/onboard prefix and ensure .epub extension
+                epub_path = position_info['epub_path'].replace('/mnt/onboard/', '')
+                # Remove any extensions after .epub
+                if '.epub.' in epub_path:
+                    epub_path = epub_path[:epub_path.find('.epub.') + 5]
+                # Ensure it ends with .epub
+                if not epub_path.endswith('.epub'):
+                    epub_path = epub_path + '.epub'
+                
+                epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
+                print(f"Looking for EPUB at: {epub_path}")  # Debug log
+                
+                # Handle markup annotations
+                if annotation_type == 'markup':
+                    print("Processing markup annotation...")  # Debug log
+                    markup_dir = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "markups")
+                    svg_path = os.path.join(markup_dir, f"{bookmark_id}.svg")
+                    jpg_path = os.path.join(markup_dir, f"{bookmark_id}.jpg")
+                    
+                    print(f"Looking for markup files:")  # Debug log
+                    print(f"SVG: {svg_path} - Exists: {os.path.exists(svg_path)}")
+                    print(f"JPG: {jpg_path} - Exists: {os.path.exists(jpg_path)}")
+                    
+                    markup_file = None
+                    if os.path.exists(svg_path):
+                        markup_file = svg_path
+                    elif os.path.exists(jpg_path):
+                        markup_file = jpg_path
+                    
+                    if markup_file and os.path.exists(epub_path):
+                        print("Found markup file and EPUB, getting page image...")  # Debug log
+                        # Get the page image
+                        page_image = self.get_page_image(epub_path, position_info['content_id'])
+                        if page_image:
+                            print("Got page image, merging with markup...")  # Debug log
+                            # Merge markup with page image
+                            merged_image = self.merge_markup_with_page(markup_file, page_image)
+                            if merged_image:
+                                print("Successfully merged images, showing preview...")  # Debug log
+                                # Show preview window
+                                self.preview_combined_image(merged_image, bookmark_id)
+                                continue
+                            else:
+                                print("Failed to merge images")  # Debug log
+                        else:
+                            print("Failed to get page image")  # Debug log
+                    else:
+                        print(f"Missing files - Markup: {markup_file}, EPUB: {epub_path}")  # Debug log
+                
+                # If we couldn't create a merged image or it's not a markup, fall back to text annotation
+                if position_info['text']:
+                    print("Falling back to text annotation...")  # Debug log
+                    all_content.append((
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        f"```\n{position_info['text']}\n```"
+                    ))
+            
+            # Create or update the note in Joplin for text annotations
+            if all_content:
+                print(f"\nCreating/updating note for text annotations...")  # Debug log
                 note_title = f"{book_title} - {author}"
                 notes = self.joplin.search_all(query=note_title, type_="note")
                 
@@ -705,124 +1204,9 @@ class KoboToJoplinApp:
                         existing_note = note
                         break
                 
-                # Prepare content for all annotations
-                all_content = []
-                
-                for result in results:
-                    annotation_text = result[0] or ""
-                    bookmark_id = result[1]
-                    bookmark_content_id = result[2]
-                    chapter_title = result[3] or ""
-                    annotation_type = result[4] or ""
-                    date_created = result[5]
-                    
-                    # Format the date for sorting
-                    try:
-                        if isinstance(date_created, str):
-                            date_obj = datetime.fromisoformat(date_created)
-                        else:
-                            date_obj = datetime.fromtimestamp(int(date_created))
-                        formatted_date = date_obj.strftime('%Y-%m-%d %H:%M:%S')
-                    except (ValueError, TypeError):
-                        formatted_date = "Unknown Date"
-                    
-                    # Prepare content for this annotation
-                    content = []
-                    
-                    # Add chapter information
-                    if chapter_title:
-                        content.append(f"## {chapter_title}\n")
-                    
-                    # Add timestamp
-                    content.append(f"### {formatted_date}\n")
-                    
-                    # Handle markup annotations
-                    if annotation_type == 'markup' and bookmark_id:
-                        markup_dir = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "markups")
-                        svg_path = os.path.join(markup_dir, f"{bookmark_id}.svg")
-                        jpg_path = os.path.join(markup_dir, f"{bookmark_id}.jpg")
-                        
-                        markup_file = None
-                        if os.path.exists(svg_path):
-                            markup_file = svg_path
-                        elif os.path.exists(jpg_path):
-                            markup_file = jpg_path
-                        
-                        if markup_file:
-                            try:
-                                # If we have the EPUB path, try to get the page image and merge it
-                                if epub_path:
-                                    full_epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
-                                    if os.path.exists(full_epub_path):
-                                        page_image = self.get_page_image(full_epub_path, bookmark_content_id)
-                                        if page_image:
-                                            # Merge markup with page image
-                                            merged_image = self.merge_markup_with_page(markup_file, page_image)
-                                            if merged_image:
-                                                # Save the merged image to a temporary file
-                                                temp_merged_path = os.path.join(os.path.dirname(full_epub_path), f"merged_{bookmark_id}.png")
-                                                merged_image.save(temp_merged_path)
-                                                
-                                                # Add the merged image as a resource
-                                                resource_id = self.joplin.add_resource(
-                                                    filename=temp_merged_path,
-                                                    title=f"Markup with Page {bookmark_content_id}"
-                                                )
-                                                
-                                                # Create the content with timestamp
-                                                markup_content = f"![Markup with Page](:/{resource_id})"
-                                                if annotation_text and 'Associated Text:' in annotation_text:
-                                                    associated_text = annotation_text.split('Associated Text:')[1].strip()
-                                                    markup_content += f"\n{associated_text}"
-                                                
-                                                content.append(markup_content)
-                                                
-                                                # Link the resource to the note
-                                                if existing_note:
-                                                    self.joplin.add_resource_to_note(
-                                                        resource_id=resource_id,
-                                                        note_id=existing_note.id
-                                                    )
-                                                
-                                                # Clean up the temporary file
-                                                os.remove(temp_merged_path)
-                                                continue
-                                
-                                # If merging failed or no page image, fall back to original markup
-                                resource_id = self.joplin.add_resource(
-                                    filename=markup_file,
-                                    title=os.path.basename(markup_file)
-                                )
-                                
-                                # Create the content with timestamp
-                                markup_content = f"![Markup](:/{resource_id})"
-                                if annotation_text and 'Associated Text:' in annotation_text:
-                                    associated_text = annotation_text.split('Associated Text:')[1].strip()
-                                    markup_content += f"\n{associated_text}"
-                                
-                                content.append(markup_content)
-                                
-                                # Link the resource to the note
-                                if existing_note:
-                                    self.joplin.add_resource_to_note(
-                                        resource_id=resource_id,
-                                        note_id=existing_note.id
-                                    )
-                                
-                            except Exception as e:
-                                print(f"Debug: Error uploading markup file: {str(e)}")
-                                content.append("[Error attaching markup file]")
-                    else:
-                        # Regular annotation - wrap in code block
-                        if annotation_text:  # Only add if there's actual text
-                            content.append(f"```\n{annotation_text}\n```")
-                    
-                    # Join content if we have any content
-                    if content:
-                        all_content.append((formatted_date, '\n'.join(content)))
-                
                 try:
                     if existing_note:
+                        print("Updating existing note...")  # Debug log
                         # Update existing note with all new content
                         existing_content = existing_note.body
                         for timestamp, content in all_content:
@@ -833,6 +1217,7 @@ class KoboToJoplinApp:
                             body=existing_content
                         )
                     else:
+                        print("Creating new note...")  # Debug log
                         # Create new note with all content
                         final_content = []
                         for timestamp, content in all_content:
@@ -847,12 +1232,9 @@ class KoboToJoplinApp:
                     messagebox.showerror("Error", f"Failed to export note: {str(e)}")
                     print(f"Error details: {str(e)}")
                     continue
-            else:
-                print(f"Debug: No annotations found for {book_title} - {author}")
-                continue
-                
+                    
         messagebox.showinfo("Success", "Annotations exported successfully!")
-        
+
     def insert_content_in_order(self, existing_content, new_content, timestamp):
         """Insert new content in chronological order within the existing note content."""
         if not existing_content:
