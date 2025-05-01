@@ -808,6 +808,28 @@ class KoboToJoplinApp:
                             img_b64 = base64.b64encode(img_data).decode('utf-8')
                             img['src'] = f"data:image/png;base64,{img_b64}"
                 
+                # Get font settings from config
+                font_family = self.config.get('font', {}).get('family', 'Arial')
+                font_size = self.config.get('font', {}).get('size', 16)
+                use_kobo_font = self.config.get('font', {}).get('use_kobo_font', False)
+                kobo_font = self.config.get('font', {}).get('kobo_font', '')
+                
+                # If using Kobo font, try to find it in the device's fonts directory
+                if use_kobo_font and kobo_font:
+                    selected_device = self.device_dropdown.get()
+                    if selected_device:
+                        kobo_font_path = os.path.join(self.device_paths[selected_device], "fonts", kobo_font)
+                        if os.path.exists(kobo_font_path):
+                            # Create @font-face rule for the Kobo font
+                            font_face = f"""
+                            @font-face {{
+                                font-family: 'KoboFont';
+                                src: url('file:///{kobo_font_path}') format('truetype');
+                            }}
+                            """
+                            css_text = font_face + css_text
+                            font_family = 'KoboFont'
+                
                 # Create a complete HTML document with proper styling
                 print("Creating HTML document...")  # Debug log
                 html_doc = f"""
@@ -823,7 +845,8 @@ class KoboToJoplinApp:
                         body {{
                             margin: 0;
                             padding: 20px;
-                            font-family: Arial, sans-serif;
+                            font-family: {font_family}, sans-serif;
+                            font-size: {font_size}px;
                             line-height: 1.6;
                             color: #333;
                             width: 760px;
@@ -840,6 +863,7 @@ class KoboToJoplinApp:
                         }}
                         h1, h2, h3, h4, h5, h6 {{
                             margin: 1em 0 0.5em 0;
+                            font-family: {font_family}, sans-serif;
                         }}
                         /* Add position marker for debugging */
                         .position-marker {{
@@ -1441,7 +1465,7 @@ class KoboToJoplinApp:
         """Open the settings dialog."""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x300")
+        settings_window.geometry("400x500")  # Made window taller to fit new settings
         settings_window.transient(self.root)
         settings_window.grab_set()
         
@@ -1473,35 +1497,79 @@ class KoboToJoplinApp:
         web_clipper_port_entry = ttk.Entry(main_frame, textvariable=web_clipper_port_var, width=40)
         web_clipper_port_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         
+        # Font Settings Frame
+        font_frame = ttk.LabelFrame(main_frame, text="Font Settings", padding="5")
+        font_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # Use Kobo Font Checkbox
+        use_kobo_font_var = tk.BooleanVar(value=self.config.get('font', {}).get('use_kobo_font', False))
+        use_kobo_font_check = ttk.Checkbutton(font_frame, text="Use Kobo Font", variable=use_kobo_font_var)
+        use_kobo_font_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        # Font Family (Windows)
+        ttk.Label(font_frame, text="Windows Font:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        font_family_var = tk.StringVar(value=self.config.get('font', {}).get('family', 'Arial'))
+        font_family_entry = ttk.Entry(font_frame, textvariable=font_family_var, width=40)
+        font_family_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Kobo Font Name
+        ttk.Label(font_frame, text="Kobo Font Name:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        kobo_font_var = tk.StringVar(value=self.config.get('font', {}).get('kobo_font', ''))
+        kobo_font_entry = ttk.Entry(font_frame, textvariable=kobo_font_var, width=40)
+        kobo_font_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Font Size
+        ttk.Label(font_frame, text="Font Size:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        font_size_var = tk.StringVar(value=str(self.config.get('font', {}).get('size', 16)))
+        font_size_entry = ttk.Entry(font_frame, textvariable=font_size_var, width=40)
+        font_size_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=10)
         
         def save_settings():
             """Save the settings and update the configuration."""
-            self.config['joplin_api_token'] = api_token_var.get()
-            self.config['notebook_id'] = notebook_id_var.get()
-            self.config['web_clipper'] = {
-                'url': web_clipper_url_var.get(),
-                'port': int(web_clipper_port_var.get())
-            }
-            
-            # Save to file
-            config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-            with open(config_path, 'w') as f:
-                json.dump(self.config, f, indent=4)
-            
-            # Reinitialize Joplin API with new token
-            self.joplin = ClientApi(token=self.config['joplin_api_token'])
-            
-            settings_window.destroy()
-            messagebox.showinfo("Success", "Settings saved successfully!")
+            try:
+                # Validate font size
+                font_size = int(font_size_var.get())
+                if font_size < 8 or font_size > 72:
+                    raise ValueError("Font size must be between 8 and 72")
+                
+                self.config['joplin_api_token'] = api_token_var.get()
+                self.config['notebook_id'] = notebook_id_var.get()
+                self.config['web_clipper'] = {
+                    'url': web_clipper_url_var.get(),
+                    'port': int(web_clipper_port_var.get())
+                }
+                self.config['font'] = {
+                    'use_kobo_font': use_kobo_font_var.get(),
+                    'family': font_family_var.get(),
+                    'kobo_font': kobo_font_var.get(),
+                    'size': font_size
+                }
+                
+                # Save to file
+                config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+                with open(config_path, 'w') as f:
+                    json.dump(self.config, f, indent=4)
+                
+                # Reinitialize Joplin API with new token
+                self.joplin = ClientApi(token=self.config['joplin_api_token'])
+                
+                settings_window.destroy()
+                messagebox.showinfo("Success", "Settings saved successfully!")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
         
         ttk.Button(button_frame, text="Save", command=save_settings).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.LEFT, padx=5)
         
         # Configure grid weights
         main_frame.columnconfigure(1, weight=1)
+        font_frame.columnconfigure(1, weight=1)
 
     def load_chapter_formats(self):
         """Load chapter formats configuration from JSON file."""
