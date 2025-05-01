@@ -1,0 +1,30 @@
+{
+    "kepub_formats": [
+        {
+            "name": "OEBPS Text",
+            "path_marker": "!OEBPS!Text/",
+            "chapter_pattern": "part(\\d+)\\.(?:xhtml|html)",
+            "epub_path_split": "!OEBPS!Text/"
+        },
+        {
+            "name": "Double Text",
+            "path_marker": "!!text/",
+            "chapter_pattern": "part(\\d+)\\.(?:xhtml|html)",
+            "epub_path_split": "!!text/"
+        },
+        {
+            "name": "Index Split",
+            "path_marker": "!!index_split_",
+            "chapter_pattern": "index_split_(\\d+)\\.html",
+            "epub_path_split": "!!index_split_"
+        }
+    ],
+    "epub_formats": [
+        {
+            "name": "Standard",
+            "path_marker": "#",
+            "chapter_pattern": "(\\d+)(?:-(\\d+))?",
+            "epub_path_split": "#"
+        }
+    ]
+} 

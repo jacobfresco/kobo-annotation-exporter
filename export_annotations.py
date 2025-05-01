@@ -69,6 +69,13 @@ class KoboToJoplinApp:
         self.root = root
         self.root.title("Kobo to Joplin Annotation Exporter")
         
+        # Load chapter formats configuration
+        self.chapter_formats = self.load_chapter_formats()
+        if not self.chapter_formats:
+            messagebox.showerror("Error", "Failed to load chapter formats configuration")
+            self.root.destroy()
+            return
+        
         # Check dependencies first
         missing_deps, download_links = check_dependencies()
         if missing_deps:
@@ -608,126 +615,97 @@ class KoboToJoplinApp:
             
             # Parse the content ID to get the chapter and position
             try:
-                # Handle KEPUB format
-                if '!!text/' in content_id or '!OEBPS!Text/' in content_id or '!!index_split_' in content_id:
-                    print(f"Processing KEPUB content ID: {content_id}")  # Debug log
-                    # Extract the chapter number from either part number or index split
-                    part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
-                    index_match = re.search(r'index_split_(\d+)\.html', content_id)
-                    
-                    if part_match:
-                        chapter_num = int(part_match.group(1))
-                    elif index_match:
-                        chapter_num = int(index_match.group(1))
-                    else:
-                        print(f"Could not extract chapter number from content ID: {content_id}")
-                        return None
-                        
-                    position = 0  # Position is not available in this format
-                    print(f"Found chapter number: {chapter_num}")  # Debug log
-                    
-                    # For KEPUB, we need to find the specific chapter file
-                    chapter_path = None
-                    print("Searching for chapter file...")  # Debug log
-                    
-                    # Get all document items and sort them by their href
-                    doc_items = []
-                    print("Available chapters in EPUB:")  # Debug log
-                    for item in book.get_items():
-                        if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                            href = item.get_name()
-                            print(f"Found document: {href}")  # Debug log
-                            # For KEPUB, we need to handle both !!text/, text/, and index_split paths
-                            if any(x in href.lower() for x in ['text/', 'index_split_']):
-                                doc_items.append(item)
-                                print(f"Added KEPUB chapter: {href}")  # Debug log
-                    
-                    print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
-                    
-                    # Sort by the part number or index number in the filename
-                    def get_chapter_number(item):
-                        href = item.get_name()
-                        # Try to match part number first
-                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', href, re.IGNORECASE)
-                        if part_match:
-                            return int(part_match.group(1))
-                        # Then try to match index number
-                        index_match = re.search(r'index_split_(\d+)\.html', href, re.IGNORECASE)
-                        if index_match:
-                            return int(index_match.group(1))
-                        print(f"No chapter number found in {href}")  # Debug log
-                        return 0
-                    
-                    doc_items.sort(key=get_chapter_number)
-                    
-                    # Find the chapter by its number
-                    chapter = None
-                    print(f"Looking for chapter with number {chapter_num}")  # Debug log
-                    for item in doc_items:
-                        href = item.get_name()
-                        # Try to match part number first
-                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', href, re.IGNORECASE)
-                        if part_match:
-                            current_num = int(part_match.group(1))
-                        else:
-                            # Then try to match index number
-                            index_match = re.search(r'index_split_(\d+)\.html', href, re.IGNORECASE)
-                            if index_match:
-                                current_num = int(index_match.group(1))
-                            else:
-                                continue
+                # Check for KEPUB formats first
+                for format_config in self.chapter_formats['kepub_formats']:
+                    if format_config['path_marker'] in content_id:
+                        print(f"Processing KEPUB content ID: {content_id}")  # Debug log
+                        # Extract the chapter number using the configured pattern
+                        chapter_match = re.search(format_config['chapter_pattern'], content_id)
+                        if chapter_match:
+                            chapter_num = int(chapter_match.group(1))
+                            position = 0  # Position is not available in KEPUB format
+                            print(f"Found chapter number: {chapter_num}")  # Debug log
                             
-                        print(f"Checking chapter {current_num}")  # Debug log
-                        if current_num == chapter_num:
-                            chapter = item
-                            print(f"Found matching chapter: {href}")  # Debug log
+                            # For KEPUB, we need to find the specific chapter file
+                            chapter_path = None
+                            print("Searching for chapter file...")  # Debug log
+                            
+                            # Get all document items and sort them by their href
+                            doc_items = []
+                            print("Available chapters in EPUB:")  # Debug log
+                            for item in book.get_items():
+                                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                    href = item.get_name()
+                                    print(f"Found document: {href}")  # Debug log
+                                    # Check if the href matches any KEPUB format
+                                    if any(fmt['path_marker'] in href.lower() for fmt in self.chapter_formats['kepub_formats']):
+                                        doc_items.append(item)
+                                        print(f"Added KEPUB chapter: {href}")  # Debug log
+                            
+                            print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
+                            
+                            # Sort by the chapter number in the filename
+                            def get_chapter_number(item):
+                                href = item.get_name()
+                                for fmt in self.chapter_formats['kepub_formats']:
+                                    match = re.search(fmt['chapter_pattern'], href, re.IGNORECASE)
+                                    if match:
+                                        return int(match.group(1))
+                                print(f"No chapter number found in {href}")  # Debug log
+                                return 0
+                            
+                            doc_items.sort(key=get_chapter_number)
+                            
+                            # Find the chapter by its number
+                            chapter = None
+                            print(f"Looking for chapter with number {chapter_num}")  # Debug log
+                            for item in doc_items:
+                                href = item.get_name()
+                                for fmt in self.chapter_formats['kepub_formats']:
+                                    match = re.search(fmt['chapter_pattern'], href, re.IGNORECASE)
+                                    if match:
+                                        current_num = int(match.group(1))
+                                        print(f"Checking chapter {current_num}")  # Debug log
+                                        if current_num == chapter_num:
+                                            chapter = item
+                                            print(f"Found matching chapter: {href}")  # Debug log
+                                            break
+                                if chapter:
+                                    break
+                            
+                            if chapter:
+                                print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                            else:
+                                print(f"Could not find chapter with number {chapter_num}")
+                                return None
+                                
+                            print(f"Successfully loaded chapter content")  # Debug log
                             break
-                    
-                    if chapter:
-                        print(f"Found chapter: {chapter.get_name()}")  # Debug log
-                    else:
-                        print(f"Could not find chapter with number {chapter_num}")
-                        return None
-                    
-                    print(f"Successfully loaded chapter content")  # Debug log
                 else:
                     # Handle regular EPUB format
                     print(f"Processing regular EPUB content ID: {content_id}")  # Debug log
-                    # ContentID format is typically "path/to/epub.epub#chapter-number-position"
-                    parts = content_id.split('#')
-                    if len(parts) > 1:
-                        chapter_info = parts[1]
-                        # Split by '-' to get chapter number and position
-                        chapter_parts = chapter_info.split('-')
-                        chapter_num = int(chapter_parts[0])
-                        # Position is optional, default to 0 if not present
-                        position = int(chapter_parts[1]) if len(chapter_parts) > 1 else 0
-                        
-                        # Get all document items and sort them
-                        doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
-                        doc_items.sort(key=lambda x: x.get_name())
-                        
-                        # Find the chapter by its position in the sorted list
-                        if 0 <= chapter_num - 1 < len(doc_items):
-                            chapter = doc_items[chapter_num - 1]
-                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
-                        else:
-                            print(f"Chapter number {chapter_num} out of range")
-                            return None
-                    else:
-                        chapter_num = int(content_id)
-                        position = 0
-                        # Get all document items and sort them
-                        doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
-                        doc_items.sort(key=lambda x: x.get_name())
-                        
-                        # Find the chapter by its position in the sorted list
-                        if 0 <= chapter_num - 1 < len(doc_items):
-                            chapter = doc_items[chapter_num - 1]
-                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
-                        else:
-                            print(f"Chapter number {chapter_num} out of range")
-                            return None
+                    for format_config in self.chapter_formats['epub_formats']:
+                        if format_config['path_marker'] in content_id:
+                            parts = content_id.split(format_config['path_marker'])
+                            if len(parts) > 1:
+                                chapter_info = parts[1]
+                                chapter_match = re.search(format_config['chapter_pattern'], chapter_info)
+                                if chapter_match:
+                                    chapter_num = int(chapter_match.group(1))
+                                    position = int(chapter_match.group(2)) if chapter_match.group(2) else 0
+                                    
+                                    # Get all document items and sort them
+                                    doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
+                                    doc_items.sort(key=lambda x: x.get_name())
+                                    
+                                    # Find the chapter by its position in the sorted list
+                                    if 0 <= chapter_num - 1 < len(doc_items):
+                                        chapter = doc_items[chapter_num - 1]
+                                        print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                                    else:
+                                        print(f"Chapter number {chapter_num} out of range")
+                                        return None
+                                    break
             except (ValueError, IndexError) as e:
                 print(f"Invalid content ID format: {content_id}, error: {str(e)}")
                 return None
@@ -944,57 +922,51 @@ class KoboToJoplinApp:
                 
                 # Parse the content ID to get position
                 try:
-                    # For kepub files, the content ID format is either:
-                    # /mnt/onboard/path/to/book.kepub.epub!OEBPS!Text/partXXXX.xhtml
-                    # or
-                    # /mnt/onboard/path/to/book.kepub.epub!!text/partXXXX.html
-                    # or
-                    # /mnt/onboard/path/to/book.kepub.epub!!index_split_XXX.html
-                    if '!OEBPS!Text/' in content_id or '!!text/' in content_id or '!!index_split_' in content_id:
-                        # Extract the chapter number from either part number or index split
-                        part_match = re.search(r'part(\d+)\.(?:xhtml|html)', content_id)
-                        index_match = re.search(r'index_split_(\d+)\.html', content_id)
-                        
-                        if part_match:
-                            chapter_num = int(part_match.group(1))
-                        elif index_match:
-                            chapter_num = int(index_match.group(1))
-                        else:
-                            print(f"Could not extract chapter number from content ID: {content_id}")
-                            return None
-                            
-                        position = 0  # Position is not available in this format
-                        
-                        # Extract the base EPUB path (everything before !OEBPS!Text/, !!text/, or !!index_split_)
-                        if '!OEBPS!Text/' in content_id:
-                            epub_path = content_id.split('!OEBPS!Text/')[0]
-                        elif '!!text/' in content_id:
-                            epub_path = content_id.split('!!text/')[0]
-                        else:  # !!index_split_
-                            epub_path = content_id.split('!!index_split_')[0]
-                    else:
-                        # Original format: path/to/epub.epub#chapter-number-position
-                        parts = content_id.split('#')
-                        if len(parts) > 1:
-                            chapter_info = parts[1]
-                            # Split by '-' to get chapter number and position
-                            chapter_parts = chapter_info.split('-')
-                            chapter_num = int(chapter_parts[0])
-                            # Position is optional, default to 0 if not present
-                            position = int(chapter_parts[1]) if len(chapter_parts) > 1 else 0
-                            epub_path = parts[0]  # The EPUB path is everything before the #
-                        else:
-                            chapter_num = int(content_id)
-                            position = 0
-                        
-                    return {
-                        'chapter_num': chapter_num,
-                        'position': position,
-                        'content_id': content_id,
-                        'epub_path': epub_path,
-                        'annotation': annotation,
-                        'text': text
-                    }
+                    # Check for KEPUB formats first
+                    for format_config in self.chapter_formats['kepub_formats']:
+                        if format_config['path_marker'] in content_id:
+                            # Extract the chapter number using the configured pattern
+                            chapter_match = re.search(format_config['chapter_pattern'], content_id)
+                            if chapter_match:
+                                chapter_num = int(chapter_match.group(1))
+                                position = 0  # Position is not available in KEPUB format
+                                
+                                # Extract the base EPUB path
+                                epub_path = content_id.split(format_config['epub_path_split'])[0]
+                                
+                                return {
+                                    'chapter_num': chapter_num,
+                                    'position': position,
+                                    'content_id': content_id,
+                                    'epub_path': epub_path,
+                                    'annotation': annotation,
+                                    'text': text
+                                }
+                    
+                    # If not a KEPUB format, check EPUB formats
+                    for format_config in self.chapter_formats['epub_formats']:
+                        if format_config['path_marker'] in content_id:
+                            parts = content_id.split(format_config['path_marker'])
+                            if len(parts) > 1:
+                                chapter_info = parts[1]
+                                chapter_match = re.search(format_config['chapter_pattern'], chapter_info)
+                                if chapter_match:
+                                    chapter_num = int(chapter_match.group(1))
+                                    position = int(chapter_match.group(2)) if chapter_match.group(2) else 0
+                                    epub_path = parts[0]
+                                    
+                                    return {
+                                        'chapter_num': chapter_num,
+                                        'position': position,
+                                        'content_id': content_id,
+                                        'epub_path': epub_path,
+                                        'annotation': annotation,
+                                        'text': text
+                                    }
+                    
+                    print(f"Could not match content ID to any known format: {content_id}")
+                    return None
+                    
                 except (ValueError, IndexError) as e:
                     print(f"Error parsing content ID: {content_id}, error: {str(e)}")
                     return None
@@ -1358,6 +1330,29 @@ class KoboToJoplinApp:
         
         # Configure grid weights
         main_frame.columnconfigure(1, weight=1)
+
+    def load_chapter_formats(self):
+        """Load chapter formats configuration from JSON file."""
+        try:
+            # Get the directory where the script or executable is located
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Running as script
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            config_path = os.path.join(base_path, 'chapter_formats.json')
+            
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            else:
+                print(f"Chapter formats configuration not found at: {config_path}")
+                return None
+        except Exception as e:
+            print(f"Error loading chapter formats: {str(e)}")
+            return None
 
 if __name__ == "__main__":
     root = tk.Tk()
