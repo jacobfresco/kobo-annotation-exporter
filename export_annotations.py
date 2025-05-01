@@ -12,6 +12,10 @@ import socket
 from urllib.parse import urljoin
 from datetime import datetime
 import sys
+import ebooklib
+from ebooklib import epub
+from PIL import Image
+import io
 
 class KoboToJoplinApp:
     def __init__(self, root):
@@ -438,6 +442,96 @@ class KoboToJoplinApp:
             messagebox.showerror("Error", f"Failed to load annotations: {str(e)}")
             print(f"Error details: {str(e)}")
             
+    def locate_epub_file(self, book_title, author):
+        """Locate the EPUB file for a given book on the Kobo device."""
+        try:
+            selected_device = self.device_dropdown.get()
+            if not selected_device:
+                return None
+
+            # Common paths where Kobo stores books
+            possible_paths = [
+                os.path.join(self.device_paths[selected_device], "Digital Editions"),
+                os.path.join(self.device_paths[selected_device], "Books"),
+                os.path.join(self.device_paths[selected_device], "eBooks")
+            ]
+
+            # Search for the EPUB file
+            for base_path in possible_paths:
+                if not os.path.exists(base_path):
+                    continue
+
+                # Walk through all subdirectories
+                for root, dirs, files in os.walk(base_path):
+                    for file in files:
+                        if file.lower().endswith('.epub'):
+                            # Try to match the book by title and author
+                            try:
+                                epub_path = os.path.join(root, file)
+                                book = epub.read_epub(epub_path)
+                                
+                                # Get book metadata
+                                metadata = book.get_metadata('DC', 'title')
+                                if not metadata:
+                                    continue
+                                    
+                                epub_title = metadata[0][0]
+                                epub_author = book.get_metadata('DC', 'creator')
+                                epub_author = epub_author[0][0] if epub_author else ""
+                                
+                                # Compare titles and authors (case-insensitive)
+                                if (book_title.lower() in epub_title.lower() or 
+                                    epub_title.lower() in book_title.lower()) and \
+                                   (not author or not epub_author or 
+                                    author.lower() in epub_author.lower() or 
+                                    epub_author.lower() in author.lower()):
+                                    return epub_path
+                            except Exception as e:
+                                print(f"Error reading EPUB file {file}: {str(e)}")
+                                continue
+
+            return None
+        except Exception as e:
+            print(f"Error locating EPUB file: {str(e)}")
+            return None
+
+    def get_page_image(self, epub_path, content_id):
+        """Extract a specific page from an EPUB file as an image."""
+        try:
+            # Read the EPUB file
+            book = epub.read_epub(epub_path)
+            
+            # Parse the content ID to get the chapter and position
+            # ContentID format is typically "chapter-number"
+            try:
+                chapter_num = int(content_id.split('-')[0])
+            except (ValueError, IndexError):
+                print(f"Invalid content ID format: {content_id}")
+                return None
+            
+            # Get the chapter content
+            items = list(book.get_items())
+            if chapter_num >= len(items):
+                print(f"Chapter number {chapter_num} out of range")
+                return None
+                
+            chapter = items[chapter_num]
+            
+            # Convert chapter content to image
+            # Note: This is a simplified version. In reality, you would need to:
+            # 1. Parse the HTML content
+            # 2. Use a proper HTML renderer (like QtWebEngine or similar)
+            # 3. Render the page with proper styling
+            # 4. Convert the rendered page to an image
+            
+            # For now, we'll create a placeholder image
+            img = Image.new('RGB', (800, 1200), color='white')
+            return img
+            
+        except Exception as e:
+            print(f"Error extracting page from EPUB: {str(e)}")
+            return None
+
     def export_to_joplin(self):
         selected_items = self.tree.selection()
         if not selected_items:
@@ -491,6 +585,9 @@ class KoboToJoplinApp:
             results = cursor.fetchall()
             
             if results:
+                # Locate the EPUB file
+                epub_path = self.locate_epub_file(book_title, author)
+                
                 # Check if note exists
                 note_title = f"{book_title} - {author}"
                 notes = self.joplin.search_all(query=note_title, type_="note")
@@ -571,6 +668,38 @@ class KoboToJoplinApp:
                             except Exception as e:
                                 print(f"Debug: Error uploading markup file: {str(e)}")
                                 content.append("[Error attaching markup file]")
+                                
+                        # If we have the EPUB file, try to get the page image
+                        if epub_path:
+                            page_image = self.get_page_image(epub_path, bookmark_content_id)
+                            if page_image:
+                                try:
+                                    # Save the image to a temporary file
+                                    temp_img_path = os.path.join(os.path.dirname(epub_path), f"temp_page_{bookmark_id}.png")
+                                    page_image.save(temp_img_path)
+                                    
+                                    # Add the page image as a resource
+                                    page_resource_id = self.joplin.add_resource(
+                                        filename=temp_img_path,
+                                        title=f"Page {bookmark_content_id}"
+                                    )
+                                    
+                                    # Add the page image to the content
+                                    content.append(f"\n![Page](:/{page_resource_id})")
+                                    
+                                    # Link the resource to the note
+                                    if existing_note:
+                                        self.joplin.add_resource_to_note(
+                                            resource_id=page_resource_id,
+                                            note_id=existing_note.id
+                                        )
+                                    
+                                    # Clean up the temporary file
+                                    os.remove(temp_img_path)
+                                    
+                                except Exception as e:
+                                    print(f"Debug: Error uploading page image: {str(e)}")
+                                    content.append("[Error attaching page image]")
                     else:
                         # Regular annotation - wrap in code block
                         if annotation_text:  # Only add if there's actual text
