@@ -385,8 +385,13 @@ class KoboToJoplinApp:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(button_frame, text="Export to Joplin", command=self.export_to_joplin).pack(side=tk.LEFT, padx=5)
+        self.export_button = ttk.Button(button_frame, text="Export to Joplin", command=self.export_to_joplin)
+        self.export_button.pack(side=tk.LEFT, padx=5)
+        
         ttk.Button(button_frame, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=5)
+        
+        # Bind selection event to update button text
+        self.tree.bind('<<TreeviewSelect>>', self.update_export_button_text)
         
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
@@ -637,8 +642,8 @@ class KoboToJoplinApp:
                                 if item.get_type() == ebooklib.ITEM_DOCUMENT:
                                     href = item.get_name()
                                     print(f"Found document: {href}")  # Debug log
-                                    # Check if the href matches any KEPUB format
-                                    if any(fmt['path_marker'] in href.lower() for fmt in self.chapter_formats['kepub_formats']):
+                                    # Check if the href matches any KEPUB format pattern
+                                    if any(re.search(fmt['chapter_pattern'], href, re.IGNORECASE) for fmt in self.chapter_formats['kepub_formats']):
                                         doc_items.append(item)
                                         print(f"Added KEPUB chapter: {href}")  # Debug log
                             
@@ -684,30 +689,93 @@ class KoboToJoplinApp:
                 else:
                     # Handle regular EPUB format
                     print(f"Processing regular EPUB content ID: {content_id}")  # Debug log
-                    for format_config in self.chapter_formats['epub_formats']:
-                        if format_config['path_marker'] in content_id:
-                            parts = content_id.split(format_config['path_marker'])
-                            if len(parts) > 1:
-                                chapter_info = parts[1]
-                                chapter_match = re.search(format_config['chapter_pattern'], chapter_info)
-                                if chapter_match:
-                                    chapter_num = int(chapter_match.group(1))
-                                    position = int(chapter_match.group(2)) if chapter_match.group(2) else 0
-                                    
-                                    # Get all document items and sort them
-                                    doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
-                                    doc_items.sort(key=lambda x: x.get_name())
-                                    
-                                    # Find the chapter by its position in the sorted list
-                                    if 0 <= chapter_num - 1 < len(doc_items):
-                                        chapter = doc_items[chapter_num - 1]
-                                        print(f"Found chapter: {chapter.get_name()}")  # Debug log
-                                    else:
-                                        print(f"Chapter number {chapter_num} out of range")
-                                        return None
-                                    break
+                    
+                    # Special handling for OEBPS/part format
+                    if 'OEBPS/part' in content_id:
+                        chapter_match = re.search(r'part(\d+)\.xhtml', content_id)
+                        if chapter_match:
+                            chapter_num = int(chapter_match.group(1))
+                            position = 0
+                            print(f"Found OEBPS chapter number: {chapter_num}")  # Debug log
+                            
+                            # Get all document items
+                            doc_items = []
+                            print("Searching for OEBPS chapter files...")  # Debug log
+                            for item in book.get_items():
+                                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                    href = item.get_name()
+                                    print(f"Found document: {href}")  # Debug log
+                                    if 'OEBPS/part' in href:
+                                        doc_items.append(item)
+                                        print(f"Added OEBPS chapter: {href}")  # Debug log
+                            
+                            print(f"Total OEBPS chapters found: {len(doc_items)}")  # Debug log
+                            
+                            # Sort by the chapter number in the filename
+                            def get_chapter_number(item):
+                                href = item.get_name()
+                                match = re.search(r'part(\d+)\.xhtml', href)
+                                if match:
+                                    return int(match.group(1))
+                                print(f"No chapter number found in {href}")  # Debug log
+                                return 0
+                            
+                            doc_items.sort(key=get_chapter_number)
+                            
+                            # Find the chapter by its number
+                            chapter = None
+                            print(f"Looking for OEBPS chapter with number {chapter_num}")  # Debug log
+                            for item in doc_items:
+                                href = item.get_name()
+                                match = re.search(r'part(\d+)\.xhtml', href)
+                                if match:
+                                    current_num = int(match.group(1))
+                                    print(f"Checking chapter {current_num}")  # Debug log
+                                    if current_num == chapter_num:
+                                        chapter = item
+                                        print(f"Found matching chapter: {href}")  # Debug log
+                                        break
+                            
+                            if chapter:
+                                print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                            else:
+                                print(f"Could not find OEBPS chapter with number {chapter_num}")
+                                return None
+                            
+                            print(f"Successfully loaded OEBPS chapter content")  # Debug log
+                        else:
+                            print(f"Could not parse OEBPS chapter number from content ID")
+                            return None
+                    else:
+                        # Handle other EPUB formats
+                        for format_config in self.chapter_formats['epub_formats']:
+                            if format_config['path_marker'] in content_id:
+                                parts = content_id.split(format_config['path_marker'])
+                                if len(parts) > 1:
+                                    chapter_info = parts[1]
+                                    chapter_match = re.search(format_config['chapter_pattern'], chapter_info)
+                                    if chapter_match:
+                                        chapter_num = int(chapter_match.group(1))
+                                        position = int(chapter_match.group(2)) if chapter_match.group(2) else 0
+                                        
+                                        # Get all document items and sort them
+                                        doc_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
+                                        doc_items.sort(key=lambda x: x.get_name())
+                                        
+                                        # Find the chapter by its position in the sorted list
+                                        if 0 <= chapter_num - 1 < len(doc_items):
+                                            chapter = doc_items[chapter_num - 1]
+                                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                                        else:
+                                            print(f"Chapter number {chapter_num} out of range")
+                                            return None
+                                        break
             except (ValueError, IndexError) as e:
                 print(f"Invalid content ID format: {content_id}, error: {str(e)}")
+                return None
+            
+            if not chapter:
+                print("No chapter found for the given content ID")
                 return None
             
             # Get the chapter content as HTML
@@ -964,6 +1032,23 @@ class KoboToJoplinApp:
                                         'text': text
                                     }
                     
+                    # Special handling for OEBPS/partXXXX.xhtml format
+                    if 'OEBPS/part' in content_id:
+                        chapter_match = re.search(r'part(\d+)\.xhtml', content_id)
+                        if chapter_match:
+                            chapter_num = int(chapter_match.group(1))
+                            position = 0
+                            epub_path = content_id.split('!!')[0]
+                            
+                            return {
+                                'chapter_num': chapter_num,
+                                'position': position,
+                                'content_id': content_id,
+                                'epub_path': epub_path,
+                                'annotation': annotation,
+                                'text': text
+                            }
+                    
                     print(f"Could not match content ID to any known format: {content_id}")
                     return None
                     
@@ -986,13 +1071,32 @@ class KoboToJoplinApp:
         preview_window = tk.Toplevel(self.root)
         preview_window.title(f"Preview - Bookmark {bookmark_id}")
         
+        # Make the preview window modal and keep it on top
+        preview_window.transient(self.root)
+        preview_window.grab_set()
+        
         # Get screen dimensions
         screen_width = preview_window.winfo_screenwidth()
         screen_height = preview_window.winfo_screenheight()
         
-        # Calculate window size (80% of screen)
-        window_width = int(screen_width * 0.8)
-        window_height = int(screen_height * 0.8)
+        # Calculate window size based on image dimensions
+        img_width, img_height = image.size
+        # Use 90% of screen width as maximum width
+        max_width = int(screen_width * 0.9)
+        # Use 75% of screen height for image and 10% for buttons
+        max_image_height = int(screen_height * 0.75)
+        button_height = int(screen_height * 0.1)
+        
+        # Calculate scale factors for both width and height
+        width_scale = max_width / img_width
+        height_scale = max_image_height / img_height
+        
+        # Use the smaller scale to ensure both dimensions fit
+        scale = min(width_scale, height_scale)
+        
+        # Calculate final window dimensions
+        window_width = int(img_width * scale)
+        window_height = int(img_height * scale) + button_height
         
         # Calculate position to center the window
         x = (screen_width - window_width) // 2
@@ -1000,13 +1104,93 @@ class KoboToJoplinApp:
         
         preview_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
-        # Create a canvas with scrollbars
-        frame = ttk.Frame(preview_window)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Create main frame with padding
+        main_frame = ttk.Frame(preview_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        canvas = tk.Canvas(frame)
-        scrollbar_y = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=canvas.xview)
+        # Add buttons in a frame at the top
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 10))
+        
+        def export_and_close():
+            print(f"Exporting bookmark {bookmark_id} to Joplin...")  # Debug log
+            try:
+                # Save the image to a temporary file
+                temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
+                print(f"Saving image to: {temp_path}")  # Debug log
+                image.save(temp_path)
+                
+                print("Adding image as resource to Joplin...")  # Debug log
+                # Add the image as a resource
+                resource_id = self.joplin.add_resource(
+                    filename=temp_path,
+                    title=f"Markup with Page {bookmark_id}"
+                )
+                
+                print("Creating note in Joplin...")  # Debug log
+                # Create a new note with the image
+                self.joplin.add_note(
+                    title=f"Preview Export - {bookmark_id}",
+                    body=f"![Markup with Page](:/{resource_id})",
+                    parent_id=self.config['notebook_id']
+                )
+                
+                print("Export completed successfully")  # Debug log
+                preview_window.destroy()
+                
+            except Exception as e:
+                print(f"Error during export: {str(e)}")  # Debug log
+                preview_window.destroy()
+                # Show error message in the main window
+                self.root.after(100, lambda: messagebox.showerror("Error", f"Failed to export to Joplin: {str(e)}"))
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_path):
+                    print(f"Cleaning up temporary file: {temp_path}")  # Debug log
+                    os.remove(temp_path)
+        
+        def save_image():
+            """Save the image to a file."""
+            try:
+                # Get the default filename from the bookmark ID
+                default_filename = f"annotation_{bookmark_id}.png"
+                
+                # Ask user for save location
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension=".png",
+                    filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                    initialfile=default_filename
+                )
+                
+                if file_path:  # If user didn't cancel
+                    print(f"Saving image to: {file_path}")  # Debug log
+                    image.save(file_path)
+                    messagebox.showinfo("Success", "Image saved successfully!")
+            except Exception as e:
+                print(f"Error saving image: {str(e)}")  # Debug log
+                messagebox.showerror("Error", f"Failed to save image: {str(e)}")
+        
+        # Create buttons with more padding and make them more visible
+        export_button = ttk.Button(button_frame, text="Export to Joplin", 
+                                 command=export_and_close, padding=5)
+        export_button.pack(side=tk.LEFT, padx=5)
+        
+        save_button = ttk.Button(button_frame, text="Save Image", 
+                               command=save_image, padding=5)
+        save_button.pack(side=tk.LEFT, padx=5)
+        
+        cancel_button = ttk.Button(button_frame, text="Cancel", 
+                                 command=preview_window.destroy, padding=5)
+        cancel_button.pack(side=tk.LEFT, padx=5)
+        
+        # Create canvas frame
+        canvas_frame = ttk.Frame(main_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create canvas with scrollbars
+        canvas = tk.Canvas(canvas_frame, width=window_width, height=int(img_height * scale))
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
+        scrollbar_x = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=canvas.xview)
         
         # Configure canvas
         canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
@@ -1018,13 +1202,8 @@ class KoboToJoplinApp:
         
         print("Converting image for preview...")  # Debug log
         # Convert PIL image to PhotoImage
-        # Resize image to fit window while maintaining aspect ratio
-        img_width, img_height = image.size
-        scale = min(window_width/img_width, window_height/img_height)
-        new_width = int(img_width * scale)
-        new_height = int(img_height * scale)
-        resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
+        # Resize image to match window size
+        resized_image = image.resize((window_width, int(img_height * scale)), Image.Resampling.LANCZOS)
         photo = ImageTk.PhotoImage(resized_image)
         
         # Add image to canvas
@@ -1034,57 +1213,7 @@ class KoboToJoplinApp:
         # Configure canvas scrolling region
         canvas.configure(scrollregion=canvas.bbox("all"))
         
-        # Add buttons
-        button_frame = ttk.Frame(preview_window)
-        button_frame.pack(fill=tk.X, pady=5)
-        
-        def export_and_close():
-            print(f"Exporting bookmark {bookmark_id} to Joplin...")  # Debug log
-            self.export_image_to_joplin(image, bookmark_id, preview_window)
-        
-        ttk.Button(button_frame, text="Export to Joplin", 
-                  command=export_and_close).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", 
-                  command=preview_window.destroy).pack(side=tk.LEFT, padx=5)
-        
         print("Preview window created successfully")  # Debug log
-
-    def export_image_to_joplin(self, image, bookmark_id, preview_window):
-        """Export the previewed image to Joplin."""
-        print(f"Starting export to Joplin for bookmark {bookmark_id}...")  # Debug log
-        try:
-            # Save the image to a temporary file
-            temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
-            print(f"Saving image to: {temp_path}")  # Debug log
-            image.save(temp_path)
-            
-            print("Adding image as resource to Joplin...")  # Debug log
-            # Add the image as a resource
-            resource_id = self.joplin.add_resource(
-                filename=temp_path,
-                title=f"Markup with Page {bookmark_id}"
-            )
-            
-            print("Creating note in Joplin...")  # Debug log
-            # Create a new note with the image
-            self.joplin.add_note(
-                title=f"Preview Export - {bookmark_id}",
-                body=f"![Markup with Page](:/{resource_id})",
-                parent_id=self.config['notebook_id']
-            )
-            
-            print("Export completed successfully")  # Debug log
-            messagebox.showinfo("Success", "Image exported to Joplin successfully!")
-            preview_window.destroy()
-            
-        except Exception as e:
-            print(f"Error during export: {str(e)}")  # Debug log
-            messagebox.showerror("Error", f"Failed to export to Joplin: {str(e)}")
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                print(f"Cleaning up temporary file: {temp_path}")  # Debug log
-                os.remove(temp_path)
 
     def export_to_joplin(self):
         selected_items = self.tree.selection()
@@ -1118,6 +1247,7 @@ class KoboToJoplinApp:
             
             # Prepare content for all annotations
             all_content = []
+            export_success = False  # Track if any export was successful
             
             for bookmark_id, annotation_type in bookmark_info:
                 print(f"\nProcessing bookmark: {bookmark_id}, type: {annotation_type}")  # Debug log
@@ -1172,6 +1302,7 @@ class KoboToJoplinApp:
                                 print("Successfully merged images, showing preview...")  # Debug log
                                 # Show preview window
                                 self.preview_combined_image(merged_image, bookmark_id)
+                                export_success = True  # Mark that we had a successful export
                                 continue
                             else:
                                 print("Failed to merge images")  # Debug log
@@ -1225,12 +1356,15 @@ class KoboToJoplinApp:
                             body='\n\n---\n\n'.join(final_content),
                             parent_id=self.config['notebook_id']
                         )
+                    export_success = True  # Mark that we had a successful export
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to export note: {str(e)}")
                     print(f"Error details: {str(e)}")
                     continue
-                    
-        messagebox.showinfo("Success", "Annotations exported successfully!")
+            
+            # Show success message only if we had any successful exports
+            if export_success:
+                messagebox.showinfo("Success", "Annotations exported successfully!")
 
     def insert_content_in_order(self, existing_content, new_content, timestamp):
         """Insert new content in chronological order within the existing note content."""
@@ -1353,6 +1487,23 @@ class KoboToJoplinApp:
         except Exception as e:
             print(f"Error loading chapter formats: {str(e)}")
             return None
+
+    def update_export_button_text(self, event=None):
+        """Update the export button text based on selected annotation type."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            self.export_button.configure(text="Export to Joplin")
+            return
+            
+        # Check if any selected item is a markup
+        for item in selected_items:
+            values = self.tree.item(item)['values']
+            if values and values[5] == 'markup':  # Type is in the 6th column
+                self.export_button.configure(text="Preview Image")
+                return
+                
+        # If no markup is selected, show default text
+        self.export_button.configure(text="Export to Joplin")
 
 if __name__ == "__main__":
     root = tk.Tk()
