@@ -1492,18 +1492,32 @@ class KoboToJoplinApp:
         """Update the export button text based on selected annotation type."""
         selected_items = self.tree.selection()
         if not selected_items:
-            self.export_button.configure(text="Export to Joplin")
+            self.export_button.configure(text="Export to Joplin", state="normal")
             return
             
-        # Check if any selected item is a markup
+        # Check if we have mixed annotation types
+        has_markup = False
+        has_other = False
+        
         for item in selected_items:
             values = self.tree.item(item)['values']
-            if values and values[5] == 'markup':  # Type is in the 6th column
-                self.export_button.configure(text="Preview Image")
-                return
-                
-        # If no markup is selected, show default text
-        self.export_button.configure(text="Export to Joplin")
+            if values:
+                if values[5] == 'markup':  # Type is in the 6th column
+                    has_markup = True
+                else:
+                    has_other = True
+                    
+                # If we have both types, disable the button
+                if has_markup and has_other:
+                    self.export_button.configure(text="Export to Joplin", state="disabled")
+                    return
+        
+        # If we only have markup, show Preview Image
+        if has_markup:
+            self.export_button.configure(text="Preview Image", state="normal")
+        # If we only have other types, show Export to Joplin
+        else:
+            self.export_button.configure(text="Export to Joplin", state="normal")
 
 if __name__ == "__main__":
     root = tk.Tk()
