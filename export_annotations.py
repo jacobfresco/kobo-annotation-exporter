@@ -611,43 +611,56 @@ class KoboToJoplinApp:
             print(f"Error locating EPUB file: {str(e)}")
             return None
 
-    def get_page_image(self, epub_path, content_id):
+    def get_page_image(self, epub_path, content_id, chapter_progress=None):
         """Extract a specific page from an EPUB file as an image."""
         try:
-            print(f"Reading EPUB file: {epub_path}")  # Debug log
+            print(f"\n=== Page Image Generation Debug ===")
+            print(f"Content ID: {content_id}")
+            print(f"Chapter Progress: {chapter_progress}")
+            print(f"EPUB Path: {epub_path}")
+            
             # Read the EPUB file
             book = epub.read_epub(epub_path)
+            
+            # Determine if this is a KEPUB
+            is_kepub = False
+            for format_config in self.chapter_formats['kepub_formats']:
+                if format_config['path_marker'] in content_id:
+                    is_kepub = True
+                    break
+            
+            print(f"Is KEPUB: {is_kepub}")
             
             # Parse the content ID to get the chapter and position
             try:
                 # Check for KEPUB formats first
                 for format_config in self.chapter_formats['kepub_formats']:
                     if format_config['path_marker'] in content_id:
-                        print(f"Processing KEPUB content ID: {content_id}")  # Debug log
+                        print(f"\nProcessing KEPUB content ID: {content_id}")
                         # Extract the chapter number using the configured pattern
                         chapter_match = re.search(format_config['chapter_pattern'], content_id)
                         if chapter_match:
                             chapter_num = int(chapter_match.group(1))
                             position = 0  # Position is not available in KEPUB format
-                            print(f"Found chapter number: {chapter_num}")  # Debug log
+                            print(f"Found chapter number: {chapter_num}")
                             
                             # For KEPUB, we need to find the specific chapter file
                             chapter_path = None
-                            print("Searching for chapter file...")  # Debug log
+                            print("Searching for chapter file...")
                             
                             # Get all document items and sort them by their href
                             doc_items = []
-                            print("Available chapters in EPUB:")  # Debug log
+                            print("Available chapters in EPUB:")
                             for item in book.get_items():
                                 if item.get_type() == ebooklib.ITEM_DOCUMENT:
                                     href = item.get_name()
-                                    print(f"Found document: {href}")  # Debug log
+                                    print(f"Found document: {href}")
                                     # Check if the href matches any KEPUB format pattern
                                     if any(re.search(fmt['chapter_pattern'], href, re.IGNORECASE) for fmt in self.chapter_formats['kepub_formats']):
                                         doc_items.append(item)
-                                        print(f"Added KEPUB chapter: {href}")  # Debug log
+                                        print(f"Added KEPUB chapter: {href}")
                             
-                            print(f"Total KEPUB chapters found: {len(doc_items)}")  # Debug log
+                            print(f"Total KEPUB chapters found: {len(doc_items)}")
                             
                             # Sort by the chapter number in the filename
                             def get_chapter_number(item):
@@ -656,39 +669,39 @@ class KoboToJoplinApp:
                                     match = re.search(fmt['chapter_pattern'], href, re.IGNORECASE)
                                     if match:
                                         return int(match.group(1))
-                                print(f"No chapter number found in {href}")  # Debug log
+                                print(f"No chapter number found in {href}")
                                 return 0
                             
                             doc_items.sort(key=get_chapter_number)
                             
                             # Find the chapter by its number
                             chapter = None
-                            print(f"Looking for chapter with number {chapter_num}")  # Debug log
+                            print(f"Looking for chapter with number {chapter_num}")
                             for item in doc_items:
                                 href = item.get_name()
                                 for fmt in self.chapter_formats['kepub_formats']:
                                     match = re.search(fmt['chapter_pattern'], href, re.IGNORECASE)
                                     if match:
                                         current_num = int(match.group(1))
-                                        print(f"Checking chapter {current_num}")  # Debug log
+                                        print(f"Checking chapter {current_num}")
                                         if current_num == chapter_num:
                                             chapter = item
-                                            print(f"Found matching chapter: {href}")  # Debug log
+                                            print(f"Found matching chapter: {href}")
                                             break
                                 if chapter:
                                     break
                             
                             if chapter:
-                                print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                                print(f"Found chapter: {chapter.get_name()}")
                             else:
                                 print(f"Could not find chapter with number {chapter_num}")
                                 return None
                                 
-                            print(f"Successfully loaded chapter content")  # Debug log
+                            print(f"Successfully loaded chapter content")
                             break
                 else:
                     # Handle regular EPUB format
-                    print(f"Processing regular EPUB content ID: {content_id}")  # Debug log
+                    print(f"\nProcessing regular EPUB content ID: {content_id}")
                     
                     # Special handling for OEBPS/part format
                     if 'OEBPS/part' in content_id:
@@ -696,20 +709,20 @@ class KoboToJoplinApp:
                         if chapter_match:
                             chapter_num = int(chapter_match.group(1))
                             position = 0
-                            print(f"Found OEBPS chapter number: {chapter_num}")  # Debug log
+                            print(f"Found OEBPS chapter number: {chapter_num}")
                             
                             # Get all document items
                             doc_items = []
-                            print("Searching for OEBPS chapter files...")  # Debug log
+                            print("Searching for OEBPS chapter files...")
                             for item in book.get_items():
                                 if item.get_type() == ebooklib.ITEM_DOCUMENT:
                                     href = item.get_name()
-                                    print(f"Found document: {href}")  # Debug log
+                                    print(f"Found document: {href}")
                                     if 'OEBPS/part' in href:
                                         doc_items.append(item)
-                                        print(f"Added OEBPS chapter: {href}")  # Debug log
+                                        print(f"Added OEBPS chapter: {href}")
                             
-                            print(f"Total OEBPS chapters found: {len(doc_items)}")  # Debug log
+                            print(f"Total OEBPS chapters found: {len(doc_items)}")
                             
                             # Sort by the chapter number in the filename
                             def get_chapter_number(item):
@@ -717,32 +730,32 @@ class KoboToJoplinApp:
                                 match = re.search(r'part(\d+)\.xhtml', href)
                                 if match:
                                     return int(match.group(1))
-                                print(f"No chapter number found in {href}")  # Debug log
+                                print(f"No chapter number found in {href}")
                                 return 0
                             
                             doc_items.sort(key=get_chapter_number)
                             
                             # Find the chapter by its number
                             chapter = None
-                            print(f"Looking for OEBPS chapter with number {chapter_num}")  # Debug log
+                            print(f"Looking for OEBPS chapter with number {chapter_num}")
                             for item in doc_items:
                                 href = item.get_name()
                                 match = re.search(r'part(\d+)\.xhtml', href)
                                 if match:
                                     current_num = int(match.group(1))
-                                    print(f"Checking chapter {current_num}")  # Debug log
+                                    print(f"Checking chapter {current_num}")
                                     if current_num == chapter_num:
                                         chapter = item
-                                        print(f"Found matching chapter: {href}")  # Debug log
+                                        print(f"Found matching chapter: {href}")
                                         break
                             
                             if chapter:
-                                print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                                print(f"Found chapter: {chapter.get_name()}")
                             else:
                                 print(f"Could not find OEBPS chapter with number {chapter_num}")
                                 return None
                             
-                            print(f"Successfully loaded OEBPS chapter content")  # Debug log
+                            print(f"Successfully loaded OEBPS chapter content")
                         else:
                             print(f"Could not parse OEBPS chapter number from content ID")
                             return None
@@ -765,7 +778,7 @@ class KoboToJoplinApp:
                                         # Find the chapter by its position in the sorted list
                                         if 0 <= chapter_num - 1 < len(doc_items):
                                             chapter = doc_items[chapter_num - 1]
-                                            print(f"Found chapter: {chapter.get_name()}")  # Debug log
+                                            print(f"Found chapter: {chapter.get_name()}")
                                         else:
                                             print(f"Chapter number {chapter_num} out of range")
                                             return None
@@ -779,12 +792,12 @@ class KoboToJoplinApp:
                 return None
             
             # Get the chapter content as HTML
-            print("Getting chapter content as HTML...")  # Debug log
+            print("\nGetting chapter content as HTML...")
             html_content = chapter.get_content().decode('utf-8')
-            print(f"HTML content length: {len(html_content)}")  # Debug log
+            print(f"HTML content length: {len(html_content)}")
             
             # Parse HTML with BeautifulSoup
-            print("Parsing HTML with BeautifulSoup...")  # Debug log
+            print("Parsing HTML with BeautifulSoup...")
             soup = BeautifulSoup(html_content, 'html.parser')
             
             # Extract and inline CSS
@@ -796,7 +809,7 @@ class KoboToJoplinApp:
             # Create a temporary directory for assets
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Process images in the HTML
-                print("Processing images in HTML...")  # Debug log
+                print("Processing images in HTML...")
                 for img in soup.find_all('img'):
                     if img.get('src'):
                         # Get the image data from the EPUB
@@ -813,6 +826,12 @@ class KoboToJoplinApp:
                 font_size = self.config.get('font', {}).get('size', 16)
                 use_kobo_font = self.config.get('font', {}).get('use_kobo_font', False)
                 kobo_font = self.config.get('font', {}).get('kobo_font', '')
+                
+                print(f"\nUsing font settings:")
+                print(f"  Font family: {font_family}")
+                print(f"  Font size: {font_size}")
+                print(f"  Use Kobo font: {use_kobo_font}")
+                print(f"  Kobo font: {kobo_font}")
                 
                 # If using Kobo font, try to find it in the device's fonts directory
                 if use_kobo_font and kobo_font:
@@ -831,27 +850,31 @@ class KoboToJoplinApp:
                             font_family = 'KoboFont'
                 
                 # Create a complete HTML document with proper styling
-                print("Creating HTML document...")  # Debug log
+                print("\nCreating HTML document...")
                 html_doc = f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <meta charset="utf-8">
+                    <meta name="viewport" content="width=800">
                     <style>
                         @page {{
-                            size: 800px 1200px;
+                            size: 800px 1800px;
                             margin: 0;
+                        }}
+                        html {{
+                            width: 800px;
+                            margin: 0;
+                            padding: 0;
                         }}
                         body {{
                             margin: 0;
                             padding: 20px;
                             font-family: {font_family}, sans-serif;
                             font-size: {font_size}px;
-                            line-height: 1.6;
+                            line-height: 1.4;
                             color: #333;
                             width: 760px;
-                            height: 1160px;
-                            overflow: hidden;
                             background: transparent;
                         }}
                         img {{
@@ -864,74 +887,159 @@ class KoboToJoplinApp:
                         h1, h2, h3, h4, h5, h6 {{
                             margin: 1em 0 0.5em 0;
                             font-family: {font_family}, sans-serif;
-                        }}
-                        /* Add position marker for debugging */
-                        .position-marker {{
-                            position: absolute;
-                            left: 0;
-                            top: {position * 100}px;
-                            width: 100%;
-                            height: 2px;
-                            background-color: red;
-                            opacity: 0.5;
+                            font-size: {font_size * 1.2}px;
                         }}
                         {css_text}
                     </style>
                 </head>
                 <body>
-                    <div class="position-marker"></div>
-                    {soup.body.decode_contents() if soup.body else soup.decode_contents()}
+                    <div id="content">
+                        {soup.body.decode_contents() if soup.body else soup.decode_contents()}
+                    </div>
                 </body>
                 </html>
                 """
-                
-                try:
-                    print("Rendering HTML to PNG...")  # Debug log
-                    # Create PNG directly from HTML using imgkit
-                    png_path = os.path.join(temp_dir, 'temp.png')
-                    html_path = os.path.join(temp_dir, 'temp.html')
+
+                # Calculate the vertical offset for cropping
+                page_height = 1800  # px, as set in your CSS
+                if chapter_progress is not None:
+                    print(f"\n=== Page Position Calculation ===")
+                    print(f"Raw chapter_progress from DB: {chapter_progress}")
                     
-                    # Save HTML to temporary file
-                    with open(html_path, 'w', encoding='utf-8') as f:
-                        f.write(html_doc)
+                    # Convert chapter_progress to float if it's a string
+                    if isinstance(chapter_progress, str):
+                        try:
+                            chapter_progress = float(chapter_progress)
+                            print(f"Converted chapter_progress to float: {chapter_progress}")
+                        except ValueError:
+                            print(f"Error converting chapter_progress to float: {chapter_progress}")
+                            chapter_progress = 0.0
                     
-                    # Configure imgkit options
+                    # Ensure chapter_progress is between 0 and 1
+                    chapter_progress = max(0.0, min(1.0, chapter_progress))
+                    print(f"Normalized chapter_progress: {chapter_progress}")
+                    
+                    # Calculate total height of the chapter content
+                    # First render the full chapter to get its actual height
                     options = {
                         'format': 'png',
                         'encoding': 'UTF-8',
                         'width': 800,
-                        'height': 1200,
+                        'height': 10000,  # Use a large height to get full content
                         'enable-local-file-access': None,
                         'disable-smart-width': None,
-                        'quiet': None
+                        'quality': 100,
+                        'quiet': None,
+                        'log-level': 'info'
                     }
                     
-                    # Convert HTML to PNG using the file path
-                    imgkit.from_file(html_path, png_path, options=options)
+                    # Create temporary files for HTML and PNG
+                    html_path = os.path.join(temp_dir, 'page.html')
+                    full_png_path = os.path.join(temp_dir, 'full_page.png')
                     
-                    # Open the PNG file
+                    # Write HTML to file
+                    with open(html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_doc)
+                    
+                    # Convert HTML to PNG to get full height
+                    imgkit.from_file(html_path, full_png_path, options=options)
+                    full_img = Image.open(full_png_path)
+                    total_height = full_img.height
+                    print(f"Total chapter height: {total_height}px")
+                    
+                    # Calculate target position based on chapter progress
+                    if is_kepub:
+                        # For KEPUB, we need to handle the page counting differently
+                        # KEPUBs use a fixed number of pages per chapter
+                        # We'll use the chapter progress to determine which page to show
+                        print("Using KEPUB page calculation")
+                        # Calculate the number of pages in the chapter
+                        num_pages = (total_height + page_height - 1) // page_height
+                        print(f"Number of pages in chapter: {num_pages}")
+                        
+                        # Calculate which page to show based on chapter progress
+                        target_page = int(chapter_progress * num_pages)
+                        print(f"Target page number: {target_page}")
+                        
+                        # Calculate the crop position for that page
+                        crop_y = target_page * page_height
+                        print(f"KEPUB crop_y position: {crop_y}px")
+                    else:
+                        # For regular EPUB, use the continuous position calculation
+                        print("Using EPUB continuous position calculation")
+                        target_position = int(chapter_progress * total_height)
+                        print(f"Target position in chapter: {target_position}px")
+                        
+                        # Calculate which page this position falls on
+                        page_number = target_position // page_height
+                        position_in_page = target_position % page_height
+                        print(f"Page number in chapter: {page_number}")
+                        print(f"Position within page: {position_in_page}px")
+                        
+                        # Calculate crop position to show the target position in the middle of the viewport
+                        crop_y = max(0, target_position - (page_height // 2))
+                        print(f"Initial crop_y position: {crop_y}px")
+                    
+                    # Adjust crop_y to ensure we don't go beyond the total height
+                    max_crop_y = max(0, total_height - page_height)
+                    crop_y = min(crop_y, max_crop_y)
+                    print(f"Final adjusted crop_y position: {crop_y}px")
+                    
+                    # Crop the full image to get the specific page
+                    crop_box = (0, crop_y, 800, min(crop_y + page_height, total_height))
+                    print(f"Cropping image with box: {crop_box}")
+                    img = full_img.crop(crop_box)
+                    print(f"Cropped image size: {img.size}")
+                    
+                    # Clean up temporary files
+                    try:
+                        os.unlink(full_png_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete temporary file {full_png_path}: {str(e)}")
+                    
+                    return img, crop_y, total_height
+                else:
+                    print("\nNo chapter progress value available, rendering first page")
+                    # If no chapter progress, just render the first page
+                    options = {
+                        'format': 'png',
+                        'encoding': 'UTF-8',
+                        'width': 800,
+                        'height': page_height,
+                        'enable-local-file-access': None,
+                        'disable-smart-width': None,
+                        'quality': 100,
+                        'quiet': None,
+                        'log-level': 'info'
+                    }
+                    
+                    # Create temporary files for HTML and PNG
+                    html_path = os.path.join(temp_dir, 'page.html')
+                    png_path = os.path.join(temp_dir, 'page.png')
+                    
+                    # Write HTML to file
+                    with open(html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_doc)
+                    
+                    # Convert HTML to PNG
+                    imgkit.from_file(html_path, png_path, options=options)
                     img = Image.open(png_path)
                     
-                    # Ensure the image is in RGB mode
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
+                    # Clean up temporary files
+                    try:
+                        os.unlink(png_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete temporary file {png_path}: {str(e)}")
                     
-                    print("Successfully created page image")  # Debug log
-                    return img
-                    
-                except Exception as e:
-                    print(f"Error rendering page: {str(e)}")
-                    # Return a placeholder image with error message
-                    img = Image.new('RGB', (800, 1200), color='white')
-                    return img
-            
+                    return img, 0, page_height
+                
         except Exception as e:
             print(f"Error extracting page from EPUB: {str(e)}")
             # Return a placeholder image with error message
-            img = Image.new('RGB', (800, 1200), color='white')
-            return img
+            img = Image.new('RGB', (800, 1800), color='white')
+            return img, 0, 1800
 
-    def merge_markup_with_page(self, markup_path, page_image):
+    def merge_markup_with_page(self, markup_path, page_image, chapter_progress=None, crop_y=0, total_height=0):
         """Merge a markup image with a page image."""
         try:
             # Convert SVG to PNG if needed
@@ -963,9 +1071,57 @@ class KoboToJoplinApp:
             markup_img = markup_img.convert('RGBA')
             page_image = page_image.convert('RGBA')
             
-            # Resize markup to match page dimensions if needed
-            if markup_img.size != page_image.size:
-                markup_img = markup_img.resize(page_image.size, Image.Resampling.LANCZOS)
+            # Get the dimensions
+            page_width, page_height = page_image.size
+            markup_width, markup_height = markup_img.size
+            
+            print(f"\n=== Markup Positioning Debug ===")
+            print(f"Page dimensions: {page_width}x{page_height}")
+            print(f"Markup dimensions: {markup_width}x{markup_height}")
+            
+            # Calculate the scaling factor needed to match the page width
+            scale_factor = page_width / markup_width
+            print(f"Scale factor: {scale_factor}")
+            
+            # Resize the markup image to match the page width while maintaining aspect ratio
+            new_markup_height = int(markup_height * scale_factor)
+            markup_img = markup_img.resize((page_width, new_markup_height), Image.Resampling.LANCZOS)
+            print(f"Resized markup dimensions: {page_width}x{new_markup_height}")
+            
+            # If we have chapter progress, we need to adjust the markup position
+            if chapter_progress is not None and total_height > 0:
+                print(f"\nMarkup Position Calculation:")
+                print(f"Chapter progress: {chapter_progress}")
+                print(f"Total height: {total_height}")
+                print(f"Crop Y: {crop_y}")
+                
+                # Calculate the scale factor between the markup and the page content
+                content_scale = new_markup_height / total_height
+                print(f"Content scale: {content_scale}")
+                
+                # Calculate the markup offset based on the page's crop position
+                markup_offset = int(crop_y * content_scale)
+                print(f"Initial markup offset: {markup_offset}")
+                
+                # For KEPUB, we need to handle the markup position differently
+                # The markup should be positioned relative to the current page
+                if markup_path.lower().endswith('.svg'):
+                    print("Using KEPUB markup positioning")
+                    # For KEPUB, the markup is already positioned correctly for the current page
+                    # We just need to ensure it's within the page bounds
+                    markup_offset = max(0, min(markup_offset, new_markup_height - page_height))
+                else:
+                    print("Using EPUB markup positioning")
+                    # For EPUB, we need to adjust the markup position based on the page's crop position
+                    markup_offset = int(crop_y * content_scale)
+                
+                print(f"Final markup offset: {markup_offset}")
+                
+                # Crop the markup image to match the page height
+                crop_box = (0, markup_offset, page_width, markup_offset + page_height)
+                print(f"Crop box: {crop_box}")
+                markup_img = markup_img.crop(crop_box)
+                print(f"Cropped markup dimensions: {markup_img.size}")
             
             # Create a new image with the same size as the page
             merged_img = Image.new('RGBA', page_image.size, (255, 255, 255, 0))
@@ -997,7 +1153,13 @@ class KoboToJoplinApp:
                     Bookmark.ContentID,
                     Bookmark.Annotation,
                     Bookmark.Text,
-                    Content.ContentID as EpubPath
+                    Content.ContentID as EpubPath,
+                    Bookmark.ChapterProgress,
+                    Bookmark.VolumeId,
+                    Bookmark.StartContainerPath,
+                    Bookmark.EndContainerPath,
+                    Bookmark.StartOffset,
+                    Bookmark.EndOffset
                 FROM Bookmark
                 JOIN Content ON Bookmark.ContentID = Content.ContentID
                 WHERE Bookmark.BookmarkID = ?
@@ -1011,6 +1173,21 @@ class KoboToJoplinApp:
                 annotation = result[1]
                 text = result[2]
                 epub_path = result[3]
+                ChapterProgress = result[4]
+                volume_id = result[5]
+                start_container = result[6]
+                end_container = result[7]
+                start_offset = result[8]
+                end_offset = result[9]
+                
+                print(f"Database values:")  # Debug log
+                print(f"  ContentID: {content_id}")
+                print(f"  ChapterProgress: {ChapterProgress}")
+                print(f"  VolumeId: {volume_id}")
+                print(f"  StartContainerPath: {start_container}")
+                print(f"  EndContainerPath: {end_container}")
+                print(f"  StartOffset: {start_offset}")
+                print(f"  EndOffset: {end_offset}")
                 
                 # Parse the content ID to get position
                 try:
@@ -1032,7 +1209,12 @@ class KoboToJoplinApp:
                                     'content_id': content_id,
                                     'epub_path': epub_path,
                                     'annotation': annotation,
-                                    'text': text
+                                    'text': text,
+                                    'ChapterProgress': ChapterProgress,
+                                    'start_container': start_container,
+                                    'end_container': end_container,
+                                    'start_offset': start_offset,
+                                    'end_offset': end_offset
                                 }
                     
                     # If not a KEPUB format, check EPUB formats
@@ -1053,7 +1235,8 @@ class KoboToJoplinApp:
                                         'content_id': content_id,
                                         'epub_path': epub_path,
                                         'annotation': annotation,
-                                        'text': text
+                                        'text': text,
+                                        'ChapterProgress': ChapterProgress
                                     }
                     
                     # Special handling for OEBPS/partXXXX.xhtml format
@@ -1070,7 +1253,8 @@ class KoboToJoplinApp:
                                 'content_id': content_id,
                                 'epub_path': epub_path,
                                 'annotation': annotation,
-                                'text': text
+                                'text': text,
+                                'ChapterProgress': ChapterProgress
                             }
                     
                     print(f"Could not match content ID to any known format: {content_id}")
@@ -1176,6 +1360,7 @@ class KoboToJoplinApp:
                 
                 book_title = result[0] or "Unknown Title"
                 author = result[1] or "Unknown Author"
+                
                 
                 # Save the image to a temporary file
                 temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
@@ -1355,11 +1540,11 @@ class KoboToJoplinApp:
                     if markup_file and os.path.exists(epub_path):
                         print("Found markup file and EPUB, getting page image...")  # Debug log
                         # Get the page image
-                        page_image = self.get_page_image(epub_path, position_info['content_id'])
+                        page_image, crop_y, total_height = self.get_page_image(epub_path, position_info['content_id'], position_info.get('ChapterProgress'))
                         if page_image:
                             print("Got page image, merging with markup...")  # Debug log
                             # Merge markup with page image
-                            merged_image = self.merge_markup_with_page(markup_file, page_image)
+                            merged_image = self.merge_markup_with_page(markup_file, page_image, position_info.get('ChapterProgress'), crop_y, total_height)
                             if merged_image:
                                 print("Successfully merged images, showing preview...")  # Debug log
                                 # Show preview window
