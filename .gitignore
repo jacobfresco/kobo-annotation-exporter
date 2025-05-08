@@ -35,6 +35,14 @@ ENV/
 config.json
 !config.json.default
 *.log
+export_db_structure.py
 
 # PyInstaller
-*.spec 
+*.spec
+
+# Database structure export
+db_structure/
+*.json
+!config.json
+!config.json.default
+!chapter_formats.json 

@@ -18,7 +18,6 @@ from PIL import Image, ImageTk
 import io
 import tempfile
 from weasyprint import HTML, CSS
-from weasyprint.text.fonts import FontConfiguration
 import cairosvg
 import base64
 import re
@@ -611,6 +610,40 @@ class KoboToJoplinApp:
             print(f"Error locating EPUB file: {str(e)}")
             return None
 
+    def get_reading_settings(self, db_path, content_id):
+        """Haal de leesinstellingen op uit de database."""
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Haal de leesinstellingen op
+            query = """
+                SELECT 
+                    ReadingFontFamily,
+                    ReadingFontSize,
+                    ZoomFactor
+                FROM Content
+                WHERE ContentID = ?
+            """
+            
+            cursor.execute(query, (content_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'font_family': result[0] or 'Arial',
+                    'font_size': result[1] or 16,
+                    'zoom_factor': result[2] or 1.0
+                }
+            return None
+            
+        except Exception as e:
+            print(f"Error getting reading settings: {str(e)}")
+            return None
+        finally:
+            if conn:
+                conn.close()
+
     def get_page_image(self, epub_path, content_id, chapter_progress=None):
         """Extract a specific page from an EPUB file as an image."""
         try:
@@ -821,11 +854,30 @@ class KoboToJoplinApp:
                             img_b64 = base64.b64encode(img_data).decode('utf-8')
                             img['src'] = f"data:image/png;base64,{img_b64}"
                 
+                # Haal de leesinstellingen op
+                reading_settings = self.get_reading_settings(os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "KoboReader.sqlite"), content_id)
+                
+                if not reading_settings:
+                    reading_settings = {
+                        'font_family': 'Arial',
+                        'font_size': 16,
+                        'zoom_factor': 1.0
+                    }
+                
+                # Pas de zoom factor toe op de pagina dimensies
+                base_width = 800
+                base_height = 1800
+                zoom_factor = reading_settings['zoom_factor']
+                
+                # Bereken de geschaalde dimensies
+                page_width = int(base_width * zoom_factor)
+                page_height = int(base_height * zoom_factor)
+                
                 # Get font settings from config
-                font_family = self.config.get('font', {}).get('family', 'Arial')
-                font_size = self.config.get('font', {}).get('size', 16)
-                use_kobo_font = self.config.get('font', {}).get('use_kobo_font', False)
-                kobo_font = self.config.get('font', {}).get('kobo_font', '')
+                font_family = reading_settings['font_family']
+                font_size = reading_settings['font_size']
+                use_kobo_font = False
+                kobo_font = ''
                 
                 print(f"\nUsing font settings:")
                 print(f"  Font family: {font_family}")
@@ -856,26 +908,28 @@ class KoboToJoplinApp:
                 <html>
                 <head>
                     <meta charset="utf-8">
-                    <meta name="viewport" content="width=800">
+                    <meta name="viewport" content="width={page_width}">
                     <style>
                         @page {{
-                            size: 800px 1800px;
+                            size: {page_width}px {page_height}px;
                             margin: 0;
                         }}
                         html {{
-                            width: 800px;
+                            width: {page_width}px;
                             margin: 0;
                             padding: 0;
                         }}
                         body {{
                             margin: 0;
-                            padding: 20px;
+                            padding: {int(20 * zoom_factor)}px;
                             font-family: {font_family}, sans-serif;
                             font-size: {font_size}px;
                             line-height: 1.4;
                             color: #333;
-                            width: 760px;
+                            width: {page_width - int(40 * zoom_factor)}px;
                             background: transparent;
+                            transform: scale({zoom_factor});
+                            transform-origin: top left;
                         }}
                         img {{
                             max-width: 100%;
@@ -887,7 +941,7 @@ class KoboToJoplinApp:
                         h1, h2, h3, h4, h5, h6 {{
                             margin: 1em 0 0.5em 0;
                             font-family: {font_family}, sans-serif;
-                            font-size: {font_size * 1.2}px;
+                            font-size: {int(font_size * 1.2)}px;
                         }}
                         {css_text}
                     </style>
@@ -924,7 +978,7 @@ class KoboToJoplinApp:
                     options = {
                         'format': 'png',
                         'encoding': 'UTF-8',
-                        'width': 800,
+                        'width': page_width,
                         'height': 10000,  # Use a large height to get full content
                         'enable-local-file-access': None,
                         'disable-smart-width': None,
@@ -986,7 +1040,7 @@ class KoboToJoplinApp:
                     print(f"Final adjusted crop_y position: {crop_y}px")
                     
                     # Crop the full image to get the specific page
-                    crop_box = (0, crop_y, 800, min(crop_y + page_height, total_height))
+                    crop_box = (0, crop_y, page_width, min(crop_y + page_height, total_height))
                     print(f"Cropping image with box: {crop_box}")
                     img = full_img.crop(crop_box)
                     print(f"Cropped image size: {img.size}")
@@ -1004,7 +1058,7 @@ class KoboToJoplinApp:
                     options = {
                         'format': 'png',
                         'encoding': 'UTF-8',
-                        'width': 800,
+                        'width': page_width,
                         'height': page_height,
                         'enable-local-file-access': None,
                         'disable-smart-width': None,
@@ -1036,106 +1090,86 @@ class KoboToJoplinApp:
         except Exception as e:
             print(f"Error extracting page from EPUB: {str(e)}")
             # Return a placeholder image with error message
-            img = Image.new('RGB', (800, 1800), color='white')
-            return img, 0, 1800
+            img = Image.new('RGB', (page_width, page_height), color='white')
+            return img, 0, page_height
+
+    def position_markup(self, markup_svg, page_image, position_info):
+        """
+        Positioneer een markup SVG op de juiste plek op de pagina
+        """
+        # 1. Bereken de basis positie op basis van ChapterProgress
+        page_height = page_image.height
+        base_position = int(position_info['ChapterProgress'] * page_height)
+        
+        # 2. Pas de SVG viewBox aan om overeen te komen met de pagina dimensies
+        svg_content = markup_svg.read()
+        svg_tree = ET.fromstring(svg_content)
+        
+        # 3. Pas de SVG transformatie toe
+        # Kobo gebruikt een viewBox die overeenkomt met de pagina dimensies
+        svg_tree.set('viewBox', f'0 0 {page_image.width} {page_image.height}')
+        
+        # 4. Voeg een transformatie toe om de SVG op de juiste positie te plaatsen
+        transform = f'translate(0, {base_position})'
+        if 'transform' in svg_tree.attrib:
+            svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
+        else:
+            svg_tree.set('transform', transform)
+        
+        # 5. Converteer de aangepaste SVG naar PNG
+        modified_svg = ET.tostring(svg_tree)
+        png_data = cairosvg.svg2png(bytestring=modified_svg)
+        
+        # 6. Maak een transparante laag met de markup
+        markup_image = Image.open(io.BytesIO(png_data))
+        
+        # 7. Combineer de pagina en markup
+        result = Image.alpha_composite(page_image.convert('RGBA'), markup_image)
+        
+        return result
 
     def merge_markup_with_page(self, markup_path, page_image, chapter_progress=None, crop_y=0, total_height=0):
-        """Merge a markup image with a page image."""
+        """Verbeterde versie van de merge functie"""
         try:
-            # Convert SVG to PNG if needed
-            if markup_path.lower().endswith('.svg'):
-                # Read SVG file
-                with open(markup_path, 'rb') as f:
-                    svg_data = f.read()
-                
-                # Create a temporary file for the PNG
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                    temp_path = temp_file.name
-                
-                # Convert SVG to PNG using cairosvg
-                cairosvg.svg2png(bytestring=svg_data, write_to=temp_path)
-                
-                # Open the converted PNG
-                markup_img = Image.open(temp_path)
-                
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_path)
-                except Exception as e:
-                    print(f"Warning: Could not delete temporary file {temp_path}: {str(e)}")
-            else:
-                # Open the markup image directly if it's not SVG
-                markup_img = Image.open(markup_path)
+            # Lees SVG bestand
+            with open(markup_path, 'rb') as f:
+                svg_content = f.read()
             
-            # Convert both images to RGBA if they aren't already
-            markup_img = markup_img.convert('RGBA')
-            page_image = page_image.convert('RGBA')
+            # Parse SVG
+            svg_tree = ET.fromstring(svg_content)
             
-            # Get the dimensions
+            # Bereken de juiste schaal
             page_width, page_height = page_image.size
-            markup_width, markup_height = markup_img.size
+            svg_width = float(svg_tree.get('width', page_width))
+            svg_height = float(svg_tree.get('height', page_height))
             
-            print(f"\n=== Markup Positioning Debug ===")
-            print(f"Page dimensions: {page_width}x{page_height}")
-            print(f"Markup dimensions: {markup_width}x{markup_height}")
+            # Pas viewBox aan
+            svg_tree.set('viewBox', f'0 0 {page_width} {page_height}')
+            svg_tree.set('width', str(page_width))
+            svg_tree.set('height', str(page_height))
             
-            # Calculate the scaling factor needed to match the page width
-            scale_factor = page_width / markup_width
-            print(f"Scale factor: {scale_factor}")
-            
-            # Resize the markup image to match the page width while maintaining aspect ratio
-            new_markup_height = int(markup_height * scale_factor)
-            markup_img = markup_img.resize((page_width, new_markup_height), Image.Resampling.LANCZOS)
-            print(f"Resized markup dimensions: {page_width}x{new_markup_height}")
-            
-            # If we have chapter progress, we need to adjust the markup position
-            if chapter_progress is not None and total_height > 0:
-                print(f"\nMarkup Position Calculation:")
-                print(f"Chapter progress: {chapter_progress}")
-                print(f"Total height: {total_height}")
-                print(f"Crop Y: {crop_y}")
-                
-                # Calculate the scale factor between the markup and the page content
-                content_scale = new_markup_height / total_height
-                print(f"Content scale: {content_scale}")
-                
-                # Calculate the markup offset based on the page's crop position
-                markup_offset = int(crop_y * content_scale)
-                print(f"Initial markup offset: {markup_offset}")
-                
-                # For KEPUB, we need to handle the markup position differently
-                # The markup should be positioned relative to the current page
-                if markup_path.lower().endswith('.svg'):
-                    print("Using KEPUB markup positioning")
-                    # For KEPUB, the markup is already positioned correctly for the current page
-                    # We just need to ensure it's within the page bounds
-                    markup_offset = max(0, min(markup_offset, new_markup_height - page_height))
+            # Bereken transformatie
+            if chapter_progress is not None:
+                # Bereken basis positie
+                base_position = int(chapter_progress * total_height)
+                # Pas transformatie toe
+                transform = f'translate(0, {base_position - crop_y})'
+                if 'transform' in svg_tree.attrib:
+                    svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
                 else:
-                    print("Using EPUB markup positioning")
-                    # For EPUB, we need to adjust the markup position based on the page's crop position
-                    markup_offset = int(crop_y * content_scale)
-                
-                print(f"Final markup offset: {markup_offset}")
-                
-                # Crop the markup image to match the page height
-                crop_box = (0, markup_offset, page_width, markup_offset + page_height)
-                print(f"Crop box: {crop_box}")
-                markup_img = markup_img.crop(crop_box)
-                print(f"Cropped markup dimensions: {markup_img.size}")
+                    svg_tree.set('transform', transform)
             
-            # Create a new image with the same size as the page
-            merged_img = Image.new('RGBA', page_image.size, (255, 255, 255, 0))
+            # Converteer naar PNG
+            modified_svg = ET.tostring(svg_tree)
+            png_data = cairosvg.svg2png(bytestring=modified_svg)
             
-            # Paste the page image
-            merged_img.paste(page_image, (0, 0))
+            # Maak transparante laag
+            markup_image = Image.open(io.BytesIO(png_data))
             
-            # Paste the markup on top with alpha compositing
-            merged_img = Image.alpha_composite(merged_img, markup_img)
+            # Combineer met pagina
+            result = Image.alpha_composite(page_image.convert('RGBA'), markup_image)
             
-            # Convert back to RGB for saving
-            merged_img = merged_img.convert('RGB')
-            
-            return merged_img
+            return result.convert('RGB')
             
         except Exception as e:
             print(f"Error merging markup with page: {str(e)}")
@@ -1650,7 +1684,7 @@ class KoboToJoplinApp:
         """Open the settings dialog."""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x500")  # Made window taller to fit new settings
+        settings_window.geometry("400x300")  # Made window smaller since we removed font settings
         settings_window.transient(self.root)
         settings_window.grab_set()
         
@@ -1682,56 +1716,18 @@ class KoboToJoplinApp:
         web_clipper_port_entry = ttk.Entry(main_frame, textvariable=web_clipper_port_var, width=40)
         web_clipper_port_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         
-        # Font Settings Frame
-        font_frame = ttk.LabelFrame(main_frame, text="Font Settings", padding="5")
-        font_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        # Use Kobo Font Checkbox
-        use_kobo_font_var = tk.BooleanVar(value=self.config.get('font', {}).get('use_kobo_font', False))
-        use_kobo_font_check = ttk.Checkbutton(font_frame, text="Use Kobo Font", variable=use_kobo_font_var)
-        use_kobo_font_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=5)
-        
-        # Font Family (Windows)
-        ttk.Label(font_frame, text="Windows Font:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        font_family_var = tk.StringVar(value=self.config.get('font', {}).get('family', 'Arial'))
-        font_family_entry = ttk.Entry(font_frame, textvariable=font_family_var, width=40)
-        font_family_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
-        
-        # Kobo Font Name
-        ttk.Label(font_frame, text="Kobo Font Name:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        kobo_font_var = tk.StringVar(value=self.config.get('font', {}).get('kobo_font', ''))
-        kobo_font_entry = ttk.Entry(font_frame, textvariable=kobo_font_var, width=40)
-        kobo_font_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
-        
-        # Font Size
-        ttk.Label(font_frame, text="Font Size:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        font_size_var = tk.StringVar(value=str(self.config.get('font', {}).get('size', 16)))
-        font_size_entry = ttk.Entry(font_frame, textvariable=font_size_var, width=40)
-        font_size_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
-        
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        button_frame.grid(row=4, column=0, columnspan=2, pady=10)
         
         def save_settings():
             """Save the settings and update the configuration."""
             try:
-                # Validate font size
-                font_size = int(font_size_var.get())
-                if font_size < 8 or font_size > 72:
-                    raise ValueError("Font size must be between 8 and 72")
-                
                 self.config['joplin_api_token'] = api_token_var.get()
                 self.config['notebook_id'] = notebook_id_var.get()
                 self.config['web_clipper'] = {
                     'url': web_clipper_url_var.get(),
                     'port': int(web_clipper_port_var.get())
-                }
-                self.config['font'] = {
-                    'use_kobo_font': use_kobo_font_var.get(),
-                    'family': font_family_var.get(),
-                    'kobo_font': kobo_font_var.get(),
-                    'size': font_size
                 }
                 
                 # Save to file
@@ -1744,8 +1740,6 @@ class KoboToJoplinApp:
                 
                 settings_window.destroy()
                 messagebox.showinfo("Success", "Settings saved successfully!")
-            except ValueError as e:
-                messagebox.showerror("Error", str(e))
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
         
@@ -1754,7 +1748,6 @@ class KoboToJoplinApp:
         
         # Configure grid weights
         main_frame.columnconfigure(1, weight=1)
-        font_frame.columnconfigure(1, weight=1)
 
     def load_chapter_formats(self):
         """Load chapter formats configuration from JSON file."""
