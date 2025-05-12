@@ -616,31 +616,68 @@ class KoboToJoplinApp:
             return None
 
     def get_reading_settings(self, db_path, content_id):
-        """Haal de leesinstellingen op uit de database."""
+        """Get reading settings from the content_settings table."""
         try:
+            print(f"\n=== Reading Settings Debug ===")
+            print(f"Looking up settings for ContentID: {content_id}")
+            print(f"Database path: {db_path}")
+            
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Haal de leesinstellingen op
+            # Get reading settings from content_settings table using VolumeID
             query = """
                 SELECT 
-                    ReadingFontFamily,
-                    ReadingFontSize,
-                    ZoomFactor
-                FROM Content
-                WHERE ContentID = ?
+                    cs.ReadingFontFamily,
+                    cs.ReadingFontSize,
+                    cs.ZoomFactor
+                FROM content_settings cs
+                JOIN Bookmark b ON cs.ContentID = b.VolumeID
+                WHERE b.ContentID = ?
             """
             
             cursor.execute(query, (content_id,))
             result = cursor.fetchone()
             
             if result:
-                return {
+                settings = {
                     'font_family': result[0] or 'Arial',
                     'font_size': result[1] or 16,
                     'zoom_factor': result[2] or 1.0
                 }
-            return None
+                print(f"Found settings:")
+                print(f"  Font Family: {settings['font_family']}")
+                print(f"  Font Size: {settings['font_size']}")
+                print(f"  Zoom Factor: {settings['zoom_factor']}")
+                return settings
+            else:
+                print("No settings found in content_settings table")
+                # Try to get settings from Content table as fallback
+                fallback_query = """
+                    SELECT 
+                        ReadingFontFamily,
+                        ReadingFontSize,
+                        ZoomFactor
+                    FROM Content
+                    WHERE ContentID = ?
+                """
+                cursor.execute(fallback_query, (content_id,))
+                fallback_result = cursor.fetchone()
+                
+                if fallback_result:
+                    settings = {
+                        'font_family': fallback_result[0] or 'Arial',
+                        'font_size': fallback_result[1] or 16,
+                        'zoom_factor': fallback_result[2] or 1.0
+                    }
+                    print(f"Found fallback settings from Content table:")
+                    print(f"  Font Family: {settings['font_family']}")
+                    print(f"  Font Size: {settings['font_size']}")
+                    print(f"  Zoom Factor: {settings['zoom_factor']}")
+                    return settings
+                else:
+                    print("No settings found in Content table either")
+                    return None
             
         except Exception as e:
             print(f"Error getting reading settings: {str(e)}")
@@ -649,12 +686,12 @@ class KoboToJoplinApp:
             if conn:
                 conn.close()
 
-    def get_page_image(self, epub_path, content_id, chapter_progress=None):
+    def get_page_image(self, epub_path, content_id, position_info=None):
         """Extract a specific page from an EPUB file as an image."""
         try:
             print(f"\n=== Page Image Generation Debug ===")
             print(f"Content ID: {content_id}")
-            print(f"Chapter Progress: {chapter_progress}")
+            print(f"Position Info: {position_info}")
             print(f"EPUB Path: {epub_path}")
             
             # Read the EPUB file
@@ -838,11 +875,51 @@ class KoboToJoplinApp:
             print("Parsing HTML with BeautifulSoup...")
             soup = BeautifulSoup(html_content, 'html.parser')
             
+            # If we have container paths, try to find the exact elements
+            if position_info and position_info.get('start_container'):
+                print("\nLooking for annotation elements...")
+                print(f"Start container path: {position_info['start_container']}")
+                print(f"End container path: {position_info['end_container']}")
+                
+                # Parse the container paths
+                start_path = position_info['start_container'].split('/')
+                end_path = position_info['end_container'].split('/')
+                
+                # Find the elements
+                start_element = soup
+                end_element = soup
+                
+                for tag in start_path:
+                    if tag:
+                        start_element = start_element.find(tag)
+                        if not start_element:
+                            break
+                
+                for tag in end_path:
+                    if tag:
+                        end_element = end_element.find(tag)
+                        if not end_element:
+                            break
+                
+                if start_element and end_element:
+                    print("Found annotation elements")
+                    # Add a class to mark the annotated text
+                    start_element['class'] = start_element.get('class', []) + ['annotation-start']
+                    end_element['class'] = end_element.get('class', []) + ['annotation-end']
+            
             # Extract and inline CSS
             styles = soup.find_all('style')
             css_text = ''
             for style in styles:
                 css_text += style.string + '\n'
+            
+            # Add annotation highlighting CSS
+            css_text += """
+            .annotation-start, .annotation-end {
+                background-color: yellow;
+                opacity: 0.3;
+            }
+            """
             
             # Create a temporary directory for assets
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -859,7 +936,7 @@ class KoboToJoplinApp:
                             img_b64 = base64.b64encode(img_data).decode('utf-8')
                             img['src'] = f"data:image/png;base64,{img_b64}"
                 
-                # Haal de leesinstellingen op
+                # Get reading settings
                 reading_settings = self.get_reading_settings(os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "KoboReader.sqlite"), content_id)
                 
                 if not reading_settings:
@@ -868,45 +945,27 @@ class KoboToJoplinApp:
                         'font_size': 16,
                         'zoom_factor': 1.0
                     }
+                    print("Using default reading settings:")
+                else:
+                    print("Using reading settings from database:")
+                print(f"  Font family: {reading_settings['font_family']}")
+                print(f"  Font size: {reading_settings['font_size']}")
+                print(f"  Zoom factor: {reading_settings['zoom_factor']}")
                 
-                # Pas de zoom factor toe op de pagina dimensies
+                # Calculate page dimensions
                 base_width = 800
                 base_height = 1800
                 zoom_factor = reading_settings['zoom_factor']
                 
-                # Bereken de geschaalde dimensies
+                # Calculate scaled dimensions
                 page_width = int(base_width * zoom_factor)
                 page_height = int(base_height * zoom_factor)
                 
-                # Get font settings from config
+                # Get font settings
                 font_family = reading_settings['font_family']
                 font_size = reading_settings['font_size']
-                use_kobo_font = False
-                kobo_font = ''
                 
-                print(f"\nUsing font settings:")
-                print(f"  Font family: {font_family}")
-                print(f"  Font size: {font_size}")
-                print(f"  Use Kobo font: {use_kobo_font}")
-                print(f"  Kobo font: {kobo_font}")
-                
-                # If using Kobo font, try to find it in the device's fonts directory
-                if use_kobo_font and kobo_font:
-                    selected_device = self.device_dropdown.get()
-                    if selected_device:
-                        kobo_font_path = os.path.join(self.device_paths[selected_device], "fonts", kobo_font)
-                        if os.path.exists(kobo_font_path):
-                            # Create @font-face rule for the Kobo font
-                            font_face = f"""
-                            @font-face {{
-                                font-family: 'KoboFont';
-                                src: url('file:///{kobo_font_path}') format('truetype');
-                            }}
-                            """
-                            css_text = font_face + css_text
-                            font_family = 'KoboFont'
-                
-                # Create a complete HTML document with proper styling
+                # Create HTML document
                 print("\nCreating HTML document...")
                 html_doc = f"""
                 <!DOCTYPE html>
@@ -958,28 +1017,26 @@ class KoboToJoplinApp:
                 </body>
                 </html>
                 """
-
+                
                 # Calculate the vertical offset for cropping
-                page_height = 1800  # px, as set in your CSS
-                if chapter_progress is not None:
+                if position_info and position_info.get('ChapterProgress') is not None:
                     print(f"\n=== Page Position Calculation ===")
-                    print(f"Raw chapter_progress from DB: {chapter_progress}")
+                    print(f"Raw chapter_progress from DB: {position_info['ChapterProgress']}")
                     
                     # Convert chapter_progress to float if it's a string
-                    if isinstance(chapter_progress, str):
+                    if isinstance(position_info['ChapterProgress'], str):
                         try:
-                            chapter_progress = float(chapter_progress)
-                            print(f"Converted chapter_progress to float: {chapter_progress}")
+                            chapter_progress = float(position_info['ChapterProgress'])
                         except ValueError:
-                            print(f"Error converting chapter_progress to float: {chapter_progress}")
                             chapter_progress = 0.0
+                    else:
+                        chapter_progress = position_info['ChapterProgress']
                     
                     # Ensure chapter_progress is between 0 and 1
                     chapter_progress = max(0.0, min(1.0, chapter_progress))
                     print(f"Normalized chapter_progress: {chapter_progress}")
                     
                     # Calculate total height of the chapter content
-                    # First render the full chapter to get its actual height
                     options = {
                         'format': 'png',
                         'encoding': 'UTF-8',
@@ -992,7 +1049,7 @@ class KoboToJoplinApp:
                         'log-level': 'info'
                     }
                     
-                    # Create temporary files for HTML and PNG
+                    # Create temporary files
                     html_path = os.path.join(temp_dir, 'page.html')
                     full_png_path = os.path.join(temp_dir, 'full_page.png')
                     
@@ -1006,38 +1063,30 @@ class KoboToJoplinApp:
                     total_height = full_img.height
                     print(f"Total chapter height: {total_height}px")
                     
-                    # Calculate target position based on chapter progress
-                    if is_kepub:
-                        # For KEPUB, we need to handle the page counting differently
-                        # KEPUBs use a fixed number of pages per chapter
-                        # We'll use the chapter progress to determine which page to show
-                        print("Using KEPUB page calculation")
-                        # Calculate the number of pages in the chapter
-                        num_pages = (total_height + page_height - 1) // page_height
-                        print(f"Number of pages in chapter: {num_pages}")
-                        
-                        # Calculate which page to show based on chapter progress
-                        target_page = int(chapter_progress * num_pages)
-                        print(f"Target page number: {target_page}")
-                        
-                        # Calculate the crop position for that page
-                        crop_y = target_page * page_height
-                        print(f"KEPUB crop_y position: {crop_y}px")
-                    else:
-                        # For regular EPUB, use the continuous position calculation
-                        print("Using EPUB continuous position calculation")
+                    # Calculate target position based on chapter progress and container paths
+                    if position_info.get('start_container'):
+                        # If we have container paths, try to adjust the position
+                        print("Using container paths for positioning")
+                        # Find the start element in the rendered image
+                        # This is approximate since we can't get exact pixel positions
+                        # We'll use the chapter progress as a fallback
                         target_position = int(chapter_progress * total_height)
-                        print(f"Target position in chapter: {target_position}px")
-                        
-                        # Calculate which page this position falls on
-                        page_number = target_position // page_height
-                        position_in_page = target_position % page_height
-                        print(f"Page number in chapter: {page_number}")
-                        print(f"Position within page: {position_in_page}px")
-                        
-                        # Calculate crop position to show the target position in the middle of the viewport
-                        crop_y = max(0, target_position - (page_height // 2))
-                        print(f"Initial crop_y position: {crop_y}px")
+                    else:
+                        # Use chapter progress as the main positioning method
+                        print("Using chapter progress for positioning")
+                        target_position = int(chapter_progress * total_height)
+                    
+                    print(f"Target position in chapter: {target_position}px")
+                    
+                    # Calculate which page this position falls on
+                    page_number = target_position // page_height
+                    position_in_page = target_position % page_height
+                    print(f"Page number in chapter: {page_number}")
+                    print(f"Position within page: {position_in_page}px")
+                    
+                    # Calculate crop position to show the target position in the middle of the viewport
+                    crop_y = max(0, target_position - (page_height // 2))
+                    print(f"Initial crop_y position: {crop_y}px")
                     
                     # Adjust crop_y to ensure we don't go beyond the total height
                     max_crop_y = max(0, total_height - page_height)
@@ -1058,8 +1107,8 @@ class KoboToJoplinApp:
                     
                     return img, crop_y, total_height
                 else:
-                    print("\nNo chapter progress value available, rendering first page")
-                    # If no chapter progress, just render the first page
+                    print("\nNo position information available, rendering first page")
+                    # If no position info, just render the first page
                     options = {
                         'format': 'png',
                         'encoding': 'UTF-8',
@@ -1072,7 +1121,7 @@ class KoboToJoplinApp:
                         'log-level': 'info'
                     }
                     
-                    # Create temporary files for HTML and PNG
+                    # Create temporary files
                     html_path = os.path.join(temp_dir, 'page.html')
                     png_path = os.path.join(temp_dir, 'page.png')
                     
@@ -1100,38 +1149,69 @@ class KoboToJoplinApp:
 
     def position_markup(self, markup_svg, page_image, position_info):
         """
-        Positioneer een markup SVG op de juiste plek op de pagina
+        Position a markup SVG on the correct position on the page
         """
-        # 1. Bereken de basis positie op basis van ChapterProgress
-        page_height = page_image.height
-        base_position = int(position_info['ChapterProgress'] * page_height)
-        
-        # 2. Pas de SVG viewBox aan om overeen te komen met de pagina dimensies
-        svg_content = markup_svg.read()
-        svg_tree = ET.fromstring(svg_content)
-        
-        # 3. Pas de SVG transformatie toe
-        # Kobo gebruikt een viewBox die overeenkomt met de pagina dimensies
-        svg_tree.set('viewBox', f'0 0 {page_image.width} {page_image.height}')
-        
-        # 4. Voeg een transformatie toe om de SVG op de juiste positie te plaatsen
-        transform = f'translate(0, {base_position})'
-        if 'transform' in svg_tree.attrib:
-            svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
-        else:
-            svg_tree.set('transform', transform)
-        
-        # 5. Converteer de aangepaste SVG naar PNG
-        modified_svg = ET.tostring(svg_tree)
-        png_data = cairosvg.svg2png(bytestring=modified_svg)
-        
-        # 6. Maak een transparante laag met de markup
-        markup_image = Image.open(io.BytesIO(png_data))
-        
-        # 7. Combineer de pagina en markup
-        result = Image.alpha_composite(page_image.convert('RGBA'), markup_image)
-        
-        return result
+        try:
+            # Get page dimensions
+            page_width, page_height = page_image.size
+            
+            # Read and parse SVG
+            svg_content = markup_svg.read()
+            svg_tree = ET.fromstring(svg_content)
+            
+            # Set viewBox to match page dimensions
+            svg_tree.set('viewBox', f'0 0 {page_width} {page_height}')
+            svg_tree.set('width', str(page_width))
+            svg_tree.set('height', str(page_height))
+            
+            # Calculate position
+            if position_info.get('ChapterProgress') is not None:
+                # Convert chapter_progress to float if it's a string
+                if isinstance(position_info['ChapterProgress'], str):
+                    try:
+                        chapter_progress = float(position_info['ChapterProgress'])
+                    except ValueError:
+                        chapter_progress = 0.0
+                else:
+                    chapter_progress = position_info['ChapterProgress']
+                
+                # Ensure chapter_progress is between 0 and 1
+                chapter_progress = max(0.0, min(1.0, chapter_progress))
+                
+                # Calculate base position
+                base_position = int(chapter_progress * page_height)
+                
+                # If we have container paths, try to adjust the position
+                if position_info.get('start_container'):
+                    # The markup SVG should already be positioned correctly
+                    # We just need to ensure it's within the visible area
+                    if base_position > page_height // 2:
+                        base_position = base_position - (page_height // 2)
+                    else:
+                        base_position = 0
+                
+                # Apply transformation
+                transform = f'translate(0, {base_position})'
+                if 'transform' in svg_tree.attrib:
+                    svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
+                else:
+                    svg_tree.set('transform', transform)
+            
+            # Convert to PNG
+            modified_svg = ET.tostring(svg_tree)
+            png_data = cairosvg.svg2png(bytestring=modified_svg)
+            
+            # Create transparent layer with markup
+            markup_image = Image.open(io.BytesIO(png_data))
+            
+            # Combine with page
+            result = Image.alpha_composite(page_image.convert('RGBA'), markup_image)
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error positioning markup: {str(e)}")
+            return page_image
 
     def merge_markup_with_page(self, markup_path, page_image, chapter_progress=None, crop_y=0, total_height=0):
         """Verbeterde versie van de merge functie"""
@@ -1579,7 +1659,7 @@ class KoboToJoplinApp:
                     if markup_file and os.path.exists(epub_path):
                         print("Found markup file and EPUB, getting page image...")  # Debug log
                         # Get the page image
-                        page_image, crop_y, total_height = self.get_page_image(epub_path, position_info['content_id'], position_info.get('ChapterProgress'))
+                        page_image, crop_y, total_height = self.get_page_image(epub_path, position_info['content_id'], position_info)
                         if page_image:
                             print("Got page image, merging with markup...")  # Debug log
                             # Merge markup with page image
