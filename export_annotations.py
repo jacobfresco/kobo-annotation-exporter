@@ -20,14 +20,10 @@ import base64
 import re
 import shutil
 
-# Disable cssutils logging
-cssutils.log.setLevel(logging.CRITICAL)
-
 def check_dependencies():
     """Check if all required dependencies are installed and accessible."""
     missing_deps = []
     download_links = {
-        'wkhtmltopdf': 'https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox-0.12.6-1.msvc2015-win64.exe',
         'Python packages': 'pip install -r requirements.txt'
     }
     
