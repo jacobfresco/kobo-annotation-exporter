@@ -1,0 +1,34 @@
+{
+    "1": {  // Yellow highlight
+        "background": "#FFEB3B",
+        "foreground": "#000000"
+    },
+    "2": {  // Green highlight
+        "background": "#4CAF50",
+        "foreground": "#FFFFFF"
+    },
+    "3": {  // Blue highlight
+        "background": "#2196F3",
+        "foreground": "#FFFFFF"
+    },
+    "4": {  // Red highlight
+        "background": "#F44336",
+        "foreground": "#FFFFFF"
+    },
+    "5": {  // Purple highlight
+        "background": "#9C27B0",
+        "foreground": "#FFFFFF"
+    },
+    "6": {  // Orange highlight
+        "background": "#FF9800",
+        "foreground": "#000000"
+    },
+    "7": {  // Brown highlight
+        "background": "#795548",
+        "foreground": "#FFFFFF"
+    },
+    "8": {  // Grey highlight
+        "background": "#607D8B",
+        "foreground": "#FFFFFF"
+    }
+} 
