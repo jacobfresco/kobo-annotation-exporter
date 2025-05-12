@@ -62,7 +62,6 @@ On first use, the application will show a configuration window. You need to fill
 ## Notes
 
 - The application checks every 5 seconds for connected or disconnected Kobo devices
-- Markup annotations are only supported for books in KEPUB format
 - Text annotations are exported as markdown in Joplin
 - Markup annotations are exported as images in Joplin
 
