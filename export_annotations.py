@@ -1213,47 +1213,46 @@ class KoboToJoplinApp:
             print(f"Error positioning markup: {str(e)}")
             return page_image
 
-    def merge_markup_with_page(self, markup_path, page_image, chapter_progress=None, crop_y=0, total_height=0):
-        """Verbeterde versie van de merge functie"""
+    def merge_markup_with_page(self, markup_path, page_image):
+        """Merge markup SVG with page image from JPG."""
         try:
-            # Lees SVG bestand
+            print(f"\n=== Markup Merge Debug ===")
+            print(f"Markup path: {markup_path}")
+            print(f"Page image size: {page_image.size}")
+            
+            # Read SVG file
             with open(markup_path, 'rb') as f:
                 svg_content = f.read()
             
             # Parse SVG
             svg_tree = ET.fromstring(svg_content)
             
-            # Bereken de juiste schaal
+            # Get page dimensions
             page_width, page_height = page_image.size
-            svg_width = float(svg_tree.get('width', page_width))
-            svg_height = float(svg_tree.get('height', page_height))
             
-            # Pas viewBox aan
+            # Set viewBox to match page dimensions
             svg_tree.set('viewBox', f'0 0 {page_width} {page_height}')
             svg_tree.set('width', str(page_width))
             svg_tree.set('height', str(page_height))
             
-            # Bereken transformatie
-            if chapter_progress is not None:
-                # Bereken basis positie
-                base_position = int(chapter_progress * total_height)
-                # Pas transformatie toe
-                transform = f'translate(0, {base_position - crop_y})'
-                if 'transform' in svg_tree.attrib:
-                    svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
-                else:
-                    svg_tree.set('transform', transform)
-            
-            # Converteer naar PNG
+            # Convert to PNG
+            print("Converting SVG to PNG...")
             modified_svg = ET.tostring(svg_tree)
             png_data = cairosvg.svg2png(bytestring=modified_svg)
             
-            # Maak transparante laag
+            # Create transparent layer
             markup_image = Image.open(io.BytesIO(png_data))
+            print(f"Markup image size: {markup_image.size}")
             
-            # Combineer met pagina
-            result = Image.alpha_composite(page_image.convert('RGBA'), markup_image)
+            # Ensure both images are in RGBA mode
+            page_rgba = page_image.convert('RGBA')
+            markup_rgba = markup_image.convert('RGBA')
             
+            # Combine images
+            print("Combining images...")
+            result = Image.alpha_composite(page_rgba, markup_rgba)
+            
+            print("Merge completed successfully")
             return result.convert('RGB')
             
         except Exception as e:
@@ -1650,32 +1649,22 @@ class KoboToJoplinApp:
                     print(f"SVG: {svg_path} - Exists: {os.path.exists(svg_path)}")
                     print(f"JPG: {jpg_path} - Exists: {os.path.exists(jpg_path)}")
                     
-                    markup_file = None
-                    if os.path.exists(svg_path):
-                        markup_file = svg_path
-                    elif os.path.exists(jpg_path):
-                        markup_file = jpg_path
-                    
-                    if markup_file and os.path.exists(epub_path):
-                        print("Found markup file and EPUB, getting page image...")  # Debug log
-                        # Get the page image
-                        page_image, crop_y, total_height = self.get_page_image(epub_path, position_info['content_id'], position_info)
-                        if page_image:
-                            print("Got page image, merging with markup...")  # Debug log
-                            # Merge markup with page image
-                            merged_image = self.merge_markup_with_page(markup_file, page_image, position_info.get('ChapterProgress'), crop_y, total_height)
-                            if merged_image:
-                                print("Successfully merged images, showing preview...")  # Debug log
-                                # Show preview window
-                                self.preview_combined_image(merged_image, bookmark_id)
-                                export_success = True  # Mark that we had a successful export
-                                continue
-                            else:
-                                print("Failed to merge images")  # Debug log
+                    if os.path.exists(svg_path) and os.path.exists(jpg_path):
+                        print("Found both SVG and JPG files, merging...")  # Debug log
+                        # Load the JPG as the page image
+                        page_image = Image.open(jpg_path)
+                        # Merge markup with page image
+                        merged_image = self.merge_markup_with_page(svg_path, page_image)
+                        if merged_image:
+                            print("Successfully merged images, showing preview...")  # Debug log
+                            # Show preview window
+                            self.preview_combined_image(merged_image, bookmark_id)
+                            export_success = True  # Mark that we had a successful export
+                            continue
                         else:
-                            print("Failed to get page image")  # Debug log
+                            print("Failed to merge images")  # Debug log
                     else:
-                        print(f"Missing files - Markup: {markup_file}, EPUB: {epub_path}")  # Debug log
+                        print(f"Missing files - SVG: {os.path.exists(svg_path)}, JPG: {os.path.exists(jpg_path)}")  # Debug log
                 
                 # If we couldn't create a merged image or it's not a markup, fall back to text annotation
                 if position_info['text']:
