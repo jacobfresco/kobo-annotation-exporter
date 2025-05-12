@@ -170,8 +170,13 @@ class KoboToJoplinApp:
         # Store selected annotations
         self.selected_annotations = []
         
-        # Detect Kobo devices
+        # Initialize device detection
+        self.kobo_devices = []
+        self.device_paths = {}
+        
+        # Start periodic device detection
         self.detect_kobo_devices()
+        self.root.after(5000, self.periodic_device_detection)  # Check every 5 seconds
         
     def check_joplin_service(self):
         """Check if Joplin Web Clipper service is running."""
@@ -1802,6 +1807,22 @@ class KoboToJoplinApp:
         # If we only have other types, show Export to Joplin
         else:
             self.export_button.configure(text="Export to Joplin", state="normal")
+
+    def periodic_device_detection(self):
+        """Periodically check for Kobo devices."""
+        previous_devices = set(self.kobo_devices)
+        self.detect_kobo_devices()
+        current_devices = set(self.kobo_devices)
+        
+        # If devices changed, update the UI
+        if previous_devices != current_devices:
+            if current_devices:
+                messagebox.showinfo("Device Detected", "A Kobo device has been detected.")
+            else:
+                messagebox.showinfo("Device Removed", "No Kobo devices are currently connected.")
+        
+        # Schedule next check
+        self.root.after(5000, self.periodic_device_detection)
 
 if __name__ == "__main__":
     root = tk.Tk()
