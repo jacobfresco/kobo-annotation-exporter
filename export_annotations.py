@@ -12,19 +12,12 @@ import socket
 from urllib.parse import urljoin
 from datetime import datetime
 import sys
-import ebooklib
-from ebooklib import epub
 from PIL import Image, ImageTk
 import io
 import tempfile
-from weasyprint import HTML, CSS
 import cairosvg
 import base64
 import re
-from bs4 import BeautifulSoup
-import cssutils
-import logging
-import imgkit
 import shutil
 
 # Disable cssutils logging
@@ -43,11 +36,8 @@ def check_dependencies():
         'joppy': 'joppy',
         'win32api': 'pywin32',
         'requests': 'requests',
-        'ebooklib': 'ebooklib',
         'PIL': 'Pillow',
-        'bs4': 'beautifulsoup4',
-        'cssutils': 'cssutils',
-        'imgkit': 'imgkit'
+        'cairosvg': 'cairosvg'
     }
     
     for module, package in required_packages.items():
@@ -55,11 +45,6 @@ def check_dependencies():
             __import__(module)
         except ImportError:
             missing_deps.append(f"Python package '{package}' is not installed")
-    
-    # Check wkhtmltopdf installation
-    wkhtmltopdf_path = shutil.which('wkhtmltopdf')
-    if not wkhtmltopdf_path:
-        missing_deps.append("wkhtmltopdf is not installed or not in PATH")
     
     return missing_deps, download_links
 
@@ -1164,39 +1149,6 @@ class KoboToJoplinApp:
             svg_tree.set('width', str(page_width))
             svg_tree.set('height', str(page_height))
             
-            # Calculate position
-            if position_info.get('ChapterProgress') is not None:
-                # Convert chapter_progress to float if it's a string
-                if isinstance(position_info['ChapterProgress'], str):
-                    try:
-                        chapter_progress = float(position_info['ChapterProgress'])
-                    except ValueError:
-                        chapter_progress = 0.0
-                else:
-                    chapter_progress = position_info['ChapterProgress']
-                
-                # Ensure chapter_progress is between 0 and 1
-                chapter_progress = max(0.0, min(1.0, chapter_progress))
-                
-                # Calculate base position
-                base_position = int(chapter_progress * page_height)
-                
-                # If we have container paths, try to adjust the position
-                if position_info.get('start_container'):
-                    # The markup SVG should already be positioned correctly
-                    # We just need to ensure it's within the visible area
-                    if base_position > page_height // 2:
-                        base_position = base_position - (page_height // 2)
-                    else:
-                        base_position = 0
-                
-                # Apply transformation
-                transform = f'translate(0, {base_position})'
-                if 'transform' in svg_tree.attrib:
-                    svg_tree.set('transform', f'{svg_tree.attrib["transform"]} {transform}')
-                else:
-                    svg_tree.set('transform', transform)
-            
             # Convert to PNG
             modified_svg = ET.tostring(svg_tree)
             png_data = cairosvg.svg2png(bytestring=modified_svg)
@@ -1624,19 +1576,6 @@ class KoboToJoplinApp:
                     continue
                 
                 print(f"Position info: {position_info}")  # Debug log
-                
-                # Get the page image with the correct position
-                # Strip /mnt/onboard prefix and ensure .epub extension
-                epub_path = position_info['epub_path'].replace('/mnt/onboard/', '')
-                # Remove any extensions after .epub
-                if '.epub.' in epub_path:
-                    epub_path = epub_path[:epub_path.find('.epub.') + 5]
-                # Ensure it ends with .epub
-                if not epub_path.endswith('.epub'):
-                    epub_path = epub_path + '.epub'
-                
-                epub_path = os.path.join(self.device_paths[self.device_dropdown.get()], epub_path)
-                print(f"Looking for EPUB at: {epub_path}")  # Debug log
                 
                 # Handle markup annotations
                 if annotation_type == 'markup':
