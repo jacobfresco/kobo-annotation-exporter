@@ -193,6 +193,144 @@ class KoboToJoplinApp:
         except:
             return False
             
+    def create_config_dialog(self):
+        """Show a dialog to create a new config.json file."""
+        config_window = tk.Toplevel(self.root)
+        config_window.title("Create Configuration")
+        config_window.geometry("500x500")  # Increased height from 400 to 500
+        config_window.transient(self.root)
+        config_window.grab_set()
+        
+        # Create main frame with padding
+        main_frame = ttk.Frame(config_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Add instructions
+        ttk.Label(main_frame, text="Please enter your Joplin configuration details:", 
+                 wraplength=450).pack(pady=(0, 10))
+        
+        # Create form fields
+        form_frame = ttk.Frame(main_frame)
+        form_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Joplin API Token
+        ttk.Label(form_frame, text="Joplin API Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        api_token_var = tk.StringVar()
+        api_token_entry = ttk.Entry(form_frame, textvariable=api_token_var, width=40)
+        api_token_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Notebook ID
+        ttk.Label(form_frame, text="Notebook ID:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        notebook_id_var = tk.StringVar()
+        notebook_id_entry = ttk.Entry(form_frame, textvariable=notebook_id_var, width=40)
+        notebook_id_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Web Clipper URL
+        ttk.Label(form_frame, text="Web Clipper URL:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        web_clipper_url_var = tk.StringVar(value="http://localhost")
+        web_clipper_url_entry = ttk.Entry(form_frame, textvariable=web_clipper_url_var, width=40)
+        web_clipper_url_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Web Clipper Port
+        ttk.Label(form_frame, text="Web Clipper Port:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        web_clipper_port_var = tk.StringVar(value="41184")
+        web_clipper_port_entry = ttk.Entry(form_frame, textvariable=web_clipper_port_var, width=40)
+        web_clipper_port_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        # Add help text
+        help_text = """
+To get your Joplin API token:
+1. Open Joplin
+2. Go to Tools > Options > Web Clipper
+3. Enable the Web Clipper
+4. Copy the authorization token
+
+To get your Notebook ID:
+1. Right-click on the notebook in Joplin
+2. Select "Copy notebook ID"
+"""
+        help_label = ttk.Label(main_frame, text=help_text, justify=tk.LEFT, wraplength=450)
+        help_label.pack(pady=10)
+        
+        # Button frame with more padding
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(20, 10))  # Increased padding
+        
+        config_saved = [False]  # Use a list to store the state
+        
+        def save_config():
+            """Save the configuration and close the dialog."""
+            try:
+                config = {
+                    'joplin_api_token': api_token_var.get(),
+                    'notebook_id': notebook_id_var.get(),
+                    'web_clipper': {
+                        'url': web_clipper_url_var.get(),
+                        'port': int(web_clipper_port_var.get())
+                    }
+                }
+                
+                # Validate required fields
+                if not config['joplin_api_token']:
+                    messagebox.showerror("Error", "Please enter a Joplin API token")
+                    return
+                if not config['notebook_id']:
+                    messagebox.showerror("Error", "Please enter a Notebook ID")
+                    return
+                
+                # Save to file
+                config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=4)
+                
+                config_saved[0] = True  # Mark that config was saved
+                config_window.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save configuration: {str(e)}")
+        
+        def on_closing():
+            """Handle window closing."""
+            if not config_saved[0]:
+                # If config wasn't saved and user tries to close, show confirmation
+                if messagebox.askokcancel("Quit", "Do you want to quit? You need to configure Joplin to use this application."):
+                    config_window.destroy()
+                    self.root.destroy()
+            else:
+                # If config was saved, just close the window
+                config_window.destroy()
+        
+        # Make buttons larger with more padding
+        save_button = ttk.Button(button_frame, text="Save", command=save_config, padding=(20, 5))
+        save_button.pack(side=tk.LEFT, padx=5)
+        
+        cancel_button = ttk.Button(button_frame, text="Cancel", command=on_closing, padding=(20, 5))
+        cancel_button.pack(side=tk.LEFT, padx=5)
+        
+        # Configure grid weights
+        form_frame.columnconfigure(1, weight=1)
+        
+        # Center the window
+        config_window.update_idletasks()
+        width = config_window.winfo_width()
+        height = config_window.winfo_height()
+        x = (config_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (config_window.winfo_screenheight() // 2) - (height // 2)
+        config_window.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # Make the window modal
+        config_window.transient(self.root)
+        config_window.grab_set()
+        
+        # Set up closing handler
+        config_window.protocol("WM_DELETE_WINDOW", on_closing)
+        
+        # Wait for the window to be closed
+        self.root.wait_window(config_window)
+        
+        # Return whether config was saved
+        return config_saved[0]
+
     def load_config(self):
         """Load configuration from config.json or create from default if not exists"""
         try:
@@ -205,7 +343,6 @@ class KoboToJoplinApp:
                 base_path = os.path.dirname(os.path.abspath(__file__))
             
             config_path = os.path.join(base_path, 'config.json')
-            default_config_path = os.path.join(base_path, 'config.json.default')
             
             print(f"Looking for config at: {config_path}")  # Debug print
             
@@ -214,16 +351,14 @@ class KoboToJoplinApp:
                     config = json.load(f)
                     print("Successfully loaded config.json")  # Debug print
                     return config
-            elif os.path.exists(default_config_path):
-                with open(default_config_path, 'r') as f:
-                    config = json.load(f)
-                    print("Using default config")  # Debug print
-                    return config
             else:
-                print("No config files found")  # Debug print
-                messagebox.showerror("Error", "No configuration file found. Please create config.json or config.json.default")
-                self.root.destroy()
-                return None
+                print("No config.json found")  # Debug print
+                # Show dialog to create config
+                if not self.create_config_dialog():
+                    # If user cancelled, exit
+                    return None
+                # Try loading the config again
+                return self.load_config()
         except Exception as e:
             print(f"Error loading config: {str(e)}")  # Debug print
             messagebox.showerror("Error", f"Failed to load configuration: {str(e)}")
@@ -1367,11 +1502,11 @@ class KoboToJoplinApp:
         
         # Calculate window size based on image dimensions
         img_width, img_height = image.size
+        
         # Use 90% of screen width as maximum width
         max_width = int(screen_width * 0.9)
         # Use 75% of screen height for image and 10% for buttons
         max_image_height = int(screen_height * 0.75)
-        button_height = int(screen_height * 0.1)
         
         # Calculate scale factors for both width and height
         width_scale = max_width / img_width
@@ -1380,9 +1515,17 @@ class KoboToJoplinApp:
         # Use the smaller scale to ensure both dimensions fit
         scale = min(width_scale, height_scale)
         
+        # Calculate final image dimensions
+        scaled_width = int(img_width * scale)
+        scaled_height = int(img_height * scale)
+        
+        # Add padding for the window
+        window_padding = 20  # Padding around the image
+        button_height = 50   # Height for the button area
+        
         # Calculate final window dimensions
-        window_width = int(img_width * scale)
-        window_height = int(img_height * scale) + button_height
+        window_width = scaled_width + (window_padding * 2)
+        window_height = scaled_height + button_height + (window_padding * 2)
         
         # Calculate position to center the window
         x = (screen_width - window_width) // 2
@@ -1391,12 +1534,12 @@ class KoboToJoplinApp:
         preview_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
         # Create main frame with padding
-        main_frame = ttk.Frame(preview_window, padding="10")
+        main_frame = ttk.Frame(preview_window, padding=window_padding)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Add buttons in a frame at the top
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 10))
+        button_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, window_padding))
         
         def export_and_close():
             print(f"Exporting bookmark {bookmark_id} to Joplin...")  # Debug log
@@ -1426,7 +1569,6 @@ class KoboToJoplinApp:
                 
                 book_title = result[0] or "Unknown Title"
                 author = result[1] or "Unknown Author"
-                
                 
                 # Save the image to a temporary file
                 temp_path = os.path.join(tempfile.gettempdir(), f"preview_{bookmark_id}.png")
@@ -1483,48 +1625,31 @@ class KoboToJoplinApp:
                 print(f"Error saving image: {str(e)}")  # Debug log
                 messagebox.showerror("Error", f"Failed to save image: {str(e)}")
         
-        # Create buttons with more padding and make them more visible
+        # Create buttons with more padding
         export_button = ttk.Button(button_frame, text="Export to Joplin", 
-                                 command=export_and_close, padding=5)
+                                 command=export_and_close, padding=(20, 5))
         export_button.pack(side=tk.LEFT, padx=5)
         
         save_button = ttk.Button(button_frame, text="Save Image", 
-                               command=save_image, padding=5)
+                               command=save_image, padding=(20, 5))
         save_button.pack(side=tk.LEFT, padx=5)
         
         cancel_button = ttk.Button(button_frame, text="Cancel", 
-                                 command=preview_window.destroy, padding=5)
+                                 command=preview_window.destroy, padding=(20, 5))
         cancel_button.pack(side=tk.LEFT, padx=5)
         
-        # Create canvas frame
-        canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        # Create image frame
+        image_frame = ttk.Frame(main_frame)
+        image_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create canvas with scrollbars
-        canvas = tk.Canvas(canvas_frame, width=window_width, height=int(img_height * scale))
-        scrollbar_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=canvas.xview)
-        
-        # Configure canvas
-        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
-        
-        # Pack scrollbars and canvas
-        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        print("Converting image for preview...")  # Debug log
-        # Convert PIL image to PhotoImage
-        # Resize image to match window size
-        resized_image = image.resize((window_width, int(img_height * scale)), Image.Resampling.LANCZOS)
+        # Convert PIL image to PhotoImage and resize
+        resized_image = image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
         photo = ImageTk.PhotoImage(resized_image)
         
-        # Add image to canvas
-        canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-        canvas.image = photo  # Keep a reference
-        
-        # Configure canvas scrolling region
-        canvas.configure(scrollregion=canvas.bbox("all"))
+        # Add image to frame
+        image_label = ttk.Label(image_frame, image=photo)
+        image_label.image = photo  # Keep a reference
+        image_label.pack(fill=tk.BOTH, expand=True)
         
         print("Preview window created successfully")  # Debug log
 
@@ -1594,7 +1719,6 @@ class KoboToJoplinApp:
                             print("Successfully merged images, showing preview...")  # Debug log
                             # Show preview window
                             self.preview_combined_image(merged_image, bookmark_id)
-                            export_success = True  # Mark that we had a successful export
                             continue
                         else:
                             print("Failed to merge images")  # Debug log
