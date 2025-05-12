@@ -1,104 +1,79 @@
 # Kobo Annotation Exporter
 
-A Python application that exports annotations from Kobo e-readers to Joplin notes. This tool allows you to easily transfer your book highlights, notes, and markup annotations from your Kobo device to Joplin for better organization and access.
+An application to export annotations from your Kobo e-reader to Joplin.
 
 ## Features
 
-- Export highlights and notes from Kobo e-readers to Joplin
-- Support for markup annotations (SVG and JPG files)
-- Automatic detection of Kobo devices
-- Easy-to-use two-panel interface:
-  - Top panel: List of books with annotation counts
-  - Bottom panel: Annotations for the selected book
-- Proper chapter title handling for annotations
-- Configurable Joplin notebook destination
-- Chronological ordering of annotations within notes
-
-## Note Formatting
-
-Annotations are exported with the following format:
-- Chapter titles: `## Chapter Title`
-- Timestamps: `### Timestamp`
-- Regular annotations: Wrapped in code blocks
-- Markup annotations: Images with associated text
-- Annotations are separated by `---`
+- Automatic detection of connected Kobo devices
+- Display of books and their annotations
+- Support for different types of annotations:
+  - Text annotations (highlights and notes)
+  - Markup annotations (handwritten markings)
+- Preview of markup annotations
+- Direct export to Joplin
+- Option to save markup annotations as images
+- Automatic configuration on first use
 
 ## Requirements
 
-- Python 3.7 or higher
-- Joplin desktop application
-- Kobo e-reader device
-- Windows operating system (for device detection)
+- Python 3.6 or higher
+- Joplin desktop application with Web Clipper enabled
+- A Kobo e-reader
 
 ## Installation
 
-### Option 1: Using the executable (recommended)
-1. Download the latest release from the releases page
-2. Extract the zip file
-3. Run `Kobo Annotation Exporter.exe`
-
-### Option 2: From source
-1. Clone this repository:
-```bash
-git clone https://github.com/jacobfresco/kobo-annotation-exporter.git
-cd kobo-annotation-exporter
-```
-
-2. Install the required packages:
-```bash
-pip install -r requirements.txt
-```
-
-3. Configure Joplin:
-   - Open Joplin
-   - Enable the Web Clipper service
-   - Copy your API token from the Web Clipper options
-   - Create a notebook where you want to store your annotations
-
-4. Configure the application:
-   - Copy `config.json.default` to `config.json`
-   - Edit `config.json` with your settings:
-     - `joplin_api_token`: Your Joplin API token
-     - `notebook_id`: The ID of the notebook where annotations will be stored
-     - `web_clipper`: Configuration for the Joplin Web Clipper service
-       - `url`: The base URL (usually "http://localhost")
-       - `port`: The port number (usually 41184)
-
-## Building the Executable
-
-If you want to build the executable yourself:
-
-1. Install the required packages:
-```bash
-pip install -r requirements.txt
-```
-
-2. Build the executable:
-```bash
-pyinstaller kobo_annotation_exporter.spec
-```
-
-The executable will be created in the `dist` directory.
-
-## Usage
-
-1. Connect your Kobo device to your computer
-2. Run the application
-3. Select your Kobo device from the dropdown menu
-4. In the top panel, select a book to view its annotations
-5. In the bottom panel, select the annotations you want to export
-6. Click "Export to Joplin"
+1. Download the latest release of the application
+2. Install the required Python packages:
+   ```
+   pip install -r requirements.txt
+   ```
 
 ## Configuration
 
-The application stores its configuration in a `config.json` file. You can manually edit this file or use the Settings dialog in the application.
+On first use, the application will show a configuration window. You need to fill in the following details:
 
-Required settings:
-- `joplin_api_token`: Your Joplin API token
-- `notebook_id`: The ID of the notebook where annotations will be stored
-- `web_clipper`: Configuration for the Joplin Web Clipper service
-  - `url`: The base URL (usually "http://localhost")
-  - `port`: The port number (usually 41184)
+1. **Joplin API Token**
+   - Open Joplin
+   - Go to Tools > Options > Web Clipper
+   - Enable the Web Clipper
+   - Copy the authorization token
+
+2. **Notebook ID**
+   - Right-click on the notebook in Joplin where you want to store your annotations
+   - Select "Copy notebook ID"
+
+3. **Web Clipper URL and Port**
+   - Default is set to http://localhost:41184
+   - These settings can be adjusted in the Joplin Web Clipper options
+
+## Usage
+
+1. Start the application
+2. Connect your Kobo e-reader to your computer
+3. Select your Kobo device from the dropdown list
+4. Choose a book from the list to view its annotations
+5. Select the annotations you want to export
+6. Click "Export to Joplin" to export text annotations
+7. For markup annotations:
+   - Click "Preview Image" to view the markup
+   - Choose "Export to Joplin" to export the markup to Joplin
+   - Or choose "Save Image" to save the markup as an image
+
+## Notes
+
+- The application checks every 5 seconds for connected or disconnected Kobo devices
+- Markup annotations are only supported for books in KEPUB format
+- Text annotations are exported as markdown in Joplin
+- Markup annotations are exported as images in Joplin
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check if Joplin is running and the Web Clipper is enabled
+2. Verify that your API token is correct
+3. Ensure your Kobo device is properly connected
+4. Check if your notebook ID is correct
 
 ## License
 
