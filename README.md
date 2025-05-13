@@ -13,6 +13,8 @@ An application to export annotations from your Kobo e-reader to Joplin.
 - Direct export to Joplin
 - Option to save markup annotations as images
 - Automatic configuration on first use
+- Customizable highlight colors for text annotations
+- Customizable annotation template for Joplin notes
 
 ## Requirements
 
@@ -46,6 +48,33 @@ On first use, the application will show a configuration window. You need to fill
    - Default is set to http://localhost:41184
    - These settings can be adjusted in the Joplin Web Clipper options
 
+### Customization Files
+
+The application uses two additional configuration files for customization:
+
+1. **highlight_colors.json**
+   - Defines the colors for different highlight types
+   - Format:
+     ```json
+     {
+       "0": { "background": "#FFFFFF", "foreground": "#000000" },
+       "1": { "background": "#FFFF00", "foreground": "#000000" }
+     }
+     ```
+   - The number keys correspond to the highlight color index in Kobo
+   - Each color has a background and foreground (text) color
+
+2. **annotation_template.md**
+   - Defines the template for how annotations are formatted in Joplin
+   - Available placeholders:
+     - `%chapter_title%`: Chapter title
+     - `%anno_date%`: Annotation date
+     - `%anno_time%`: Annotation time
+     - `%anno_type%`: Annotation type
+     - `%highlight_background%`: Background color
+     - `%highlight_foreground%`: Text color
+     - `%anno_text%`: The annotation text
+
 ## Usage
 
 1. Start the application
@@ -62,8 +91,10 @@ On first use, the application will show a configuration window. You need to fill
 ## Notes
 
 - The application checks every 5 seconds for connected or disconnected Kobo devices
-- Text annotations are exported as markdown in Joplin
+- Text annotations are exported as markdown in Joplin using the configured template
 - Markup annotations are exported as images in Joplin
+- Highlight colors are preserved in the exported annotations
+- Multiple annotations from the same book are combined into a single Joplin note
 
 ## Troubleshooting
 
@@ -73,6 +104,7 @@ If you encounter issues:
 2. Verify that your API token is correct
 3. Ensure your Kobo device is properly connected
 4. Check if your notebook ID is correct
+5. Verify that highlight_colors.json and annotation_template.md are properly formatted
 
 ## License
 
