@@ -471,7 +471,7 @@ To get your Notebook ID:
         
         # Create annotations tree view
         self.tree = ttk.Treeview(annotations_tree_frame, 
-                                columns=('Book', 'Author', 'Annotation', 'Date', 'BookmarkID', 'Type'),
+                                columns=('Book', 'Author', 'Annotation', 'Date', 'BookmarkID', 'Type', 'Color'),
                                 show='headings',
                                 yscrollcommand=annotations_scroll_y.set,
                                 xscrollcommand=annotations_scroll_x.set)
@@ -485,10 +485,12 @@ To get your Notebook ID:
         self.tree.heading('Author', text='Author', command=lambda: self.treeview_sort_column('Author', False))
         self.tree.heading('Annotation', text='Annotation', command=lambda: self.treeview_sort_column('Annotation', False))
         self.tree.heading('Date', text='Date', command=lambda: self.treeview_sort_column('Date', False))
+        self.tree.heading('Color', text='Color', command=lambda: self.treeview_sort_column('Color', False))
         
         # Hide the BookmarkID and Type columns as they're for internal use
         self.tree.column('BookmarkID', width=0, stretch=tk.NO)
         self.tree.column('Type', width=0, stretch=tk.NO)
+        self.tree.column('Color', width=0, stretch=tk.NO)
         
         # Set column widths for annotations
         self.tree.column('Book', width=200)
@@ -624,7 +626,8 @@ To get your Notebook ID:
                     CASE 
                         WHEN Bookmark.Type != 'markup' AND Chapter.Title IS NOT NULL THEN Chapter.Title
                         ELSE ''
-                    END as ChapterTitle
+                    END as ChapterTitle,
+                    Bookmark.Color
                 FROM Bookmark
                 JOIN Content ON Bookmark.ContentID = Content.ContentID
                 JOIN Content as BookContent ON Content.BookID = BookContent.ContentID
@@ -647,6 +650,7 @@ To get your Notebook ID:
                 bookmark_id = annotation[2]
                 annotation_type = annotation[3]
                 chapter_title = annotation[4]
+                color = annotation[5]
                 
                 # Format date
                 try:
@@ -669,7 +673,8 @@ To get your Notebook ID:
                     text,
                     formatted_date,
                     bookmark_id,
-                    annotation_type
+                    annotation_type,
+                    color
                 ))
             
             conn.close()
@@ -1654,131 +1659,179 @@ To get your Notebook ID:
         print("Preview window created successfully")  # Debug log
 
     def export_to_joplin(self):
-        selected_items = self.tree.selection()
-        if not selected_items:
-            messagebox.showwarning("Warning", "Please select annotations to export")
-            return
-            
-        print("Starting export process...")  # Debug log
-            
-        # Group annotations by book
-        annotations_by_book = {}
-        for item in selected_items:
-            values = self.tree.item(item)['values']
-            book_title = values[0]
-            author = values[1]
-            bookmark_id = values[4]
-            annotation_type = values[5]  # Get the annotation type
-            
-            print(f"Processing annotation: {bookmark_id}, type: {annotation_type}")  # Debug log
-            
-            if (book_title, author) not in annotations_by_book:
-                annotations_by_book[(book_title, author)] = []
-            annotations_by_book[(book_title, author)].append((bookmark_id, annotation_type))
-            
-        # Process each book's annotations
-        for (book_title, author), bookmark_info in annotations_by_book.items():
-            print(f"\nProcessing book: {book_title} by {author}")  # Debug log
-            
-            # Get the original annotation data from the database
-            db_path = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "KoboReader.sqlite")
-            
-            # Prepare content for all annotations
-            all_content = []
-            export_success = False  # Track if any export was successful
-            
-            for bookmark_id, annotation_type in bookmark_info:
-                print(f"\nProcessing bookmark: {bookmark_id}, type: {annotation_type}")  # Debug log
-                
-                # Get position information for this annotation
-                position_info = self.get_annotation_position(db_path, bookmark_id)
-                if not position_info:
-                    print(f"Could not get position information for bookmark {bookmark_id}")
-                    continue
-                
-                print(f"Position info: {position_info}")  # Debug log
-                
-                # Handle markup annotations
-                if annotation_type == 'markup':
-                    print("Processing markup annotation...")  # Debug log
-                    markup_dir = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "markups")
-                    svg_path = os.path.join(markup_dir, f"{bookmark_id}.svg")
-                    jpg_path = os.path.join(markup_dir, f"{bookmark_id}.jpg")
-                    
-                    print(f"Looking for markup files:")  # Debug log
-                    print(f"SVG: {svg_path} - Exists: {os.path.exists(svg_path)}")
-                    print(f"JPG: {jpg_path} - Exists: {os.path.exists(jpg_path)}")
-                    
-                    if os.path.exists(svg_path) and os.path.exists(jpg_path):
-                        print("Found both SVG and JPG files, merging...")  # Debug log
-                        # Load the JPG as the page image
-                        page_image = Image.open(jpg_path)
-                        # Merge markup with page image
-                        merged_image = self.merge_markup_with_page(svg_path, page_image)
-                        if merged_image:
-                            print("Successfully merged images, showing preview...")  # Debug log
-                            # Show preview window
-                            self.preview_combined_image(merged_image, bookmark_id)
-                            continue
+        """Export annotations to Joplin"""
+        if not self.config.get('joplin_api_token') or not self.config.get('notebook_id'):
+            messagebox.showerror("Error", "Joplin API token or notebook ID not configured")
+            return False
+
+        try:
+            # Get selected annotations
+            selected_items = self.tree.selection()
+            if not selected_items:
+                messagebox.showwarning("Warning", "Please select annotations to export")
+                return False
+
+            # Check if we have markup annotations
+            has_markup = False
+            for item in selected_items:
+                values = self.tree.item(item)['values']
+                if values[5] == 'markup':  # Type is in the 6th column
+                    has_markup = True
+                    break
+
+            # If we have markup annotations, handle them differently
+            if has_markup:
+                # Process each markup annotation
+                for item in selected_items:
+                    values = self.tree.item(item)['values']
+                    if values[5] == 'markup':
+                        bookmark_id = values[4]
+                        book_title = values[0]
+                        author = values[1]
+                        print(f"Debug - Processing markup for bookmark {bookmark_id}")  # Debug print
+                        
+                        # Get the markup file path
+                        markup_path = os.path.join(self.device_paths[self.device_dropdown.get()], ".kobo", "markups", f"{bookmark_id}.svg")
+                        print(f"Debug - Markup path: {markup_path}")  # Debug print
+                        
+                        if os.path.exists(markup_path):
+                            print("Debug - Markup file exists")  # Debug print
+                            # Get the page image path from the same directory as the markup
+                            page_path = os.path.join(os.path.dirname(markup_path), f"{bookmark_id}.jpg")
+                            print(f"Debug - Page path: {page_path}")  # Debug print
+                            
+                            if os.path.exists(page_path):
+                                print("Debug - Page file exists")  # Debug print
+                                # Load the page image
+                                page_image = Image.open(page_path)
+                                print("Debug - Loaded page image")  # Debug print
+                                
+                                # Merge markup with page
+                                combined_image = self.merge_markup_with_page(markup_path, page_image)
+                                if combined_image:
+                                    print("Debug - Created combined image")  # Debug print
+                                    # Show preview
+                                    self.preview_combined_image(combined_image, bookmark_id)
+                                    return True
+                                else:
+                                    print("Debug - Failed to merge markup with page")  # Debug print
+                            else:
+                                print("Debug - Page file does not exist")  # Debug print
                         else:
-                            print("Failed to merge images")  # Debug log
-                    else:
-                        print(f"Missing files - SVG: {os.path.exists(svg_path)}, JPG: {os.path.exists(jpg_path)}")  # Debug log
-                
-                # If we couldn't create a merged image or it's not a markup, fall back to text annotation
-                if position_info['text']:
-                    print("Falling back to text annotation...")  # Debug log
-                    all_content.append((
-                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        f"```\n{position_info['text']}\n```"
-                    ))
-            
-            # Create or update the note in Joplin for text annotations
-            if all_content:
-                print(f"\nCreating/updating note for text annotations...")  # Debug log
+                            print("Debug - Markup file does not exist")  # Debug print
+                messagebox.showerror("Error", "Could not generate preview image")
+                return False
+
+            # For non-markup annotations, continue with normal export
+            # Load highlight colors
+            try:
+                with open('highlight_colors.json', 'r') as f:
+                    highlight_colors = json.load(f)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load highlight colors: {str(e)}")
+                return False
+
+            # Load template
+            try:
+                with open('annotation_template.md', 'r', encoding='utf-8') as f:
+                    template = f.read()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load template: {str(e)}")
+                return False
+
+            # Group annotations by book
+            annotations_by_book = {}
+            for item in selected_items:
+                values = self.tree.item(item)['values']
+                book_title = values[0]
+                author = values[1]
+                annotation_text = values[2]
+                annotation_date = values[3]
+                bookmark_id = values[4]
+                annotation_type = values[5]
+                color = values[6]  # Get the color value
+
+                # Skip markup annotations
+                if annotation_type == 'markup':
+                    continue
+
+                if (book_title, author) not in annotations_by_book:
+                    annotations_by_book[(book_title, author)] = []
+                annotations_by_book[(book_title, author)].append({
+                    'text': annotation_text,
+                    'date': annotation_date,
+                    'bookmark_id': bookmark_id,
+                    'type': annotation_type,
+                    'color': color
+                })
+
+            # Process each book's annotations
+            for (book_title, author), annotations in annotations_by_book.items():
+                # Create note content using template
+                note_content = []
+                for annotation in annotations:
+                    # Get highlight colors for this annotation type
+                    color_index = str(annotation['color'])  # Use the color value directly
+                    print(f"Debug - Color index: {color_index}")  # Debug print
+                    colors = highlight_colors.get(color_index, {
+                        'background': '#FFFFFF',
+                        'foreground': '#000000'
+                    })
+                    print(f"Debug - Colors: {colors}")  # Debug print
+
+                    # Format the annotation using the template
+                    anno_content = template
+                    anno_content = anno_content.replace('%chapter_title%', 'Chapter')  # TODO: Get actual chapter
+                    anno_content = anno_content.replace('%anno_date%', annotation['date'].split()[0])
+                    anno_content = anno_content.replace('%anno_time%', annotation['date'].split()[1])
+                    anno_content = anno_content.replace('%anno_page%', '')  # TODO: Get actual page
+                    anno_content = anno_content.replace('%anno_type%', annotation['type'])
+                    anno_content = anno_content.replace('%highlight_background%', colors['background'])
+                    anno_content = anno_content.replace('%highlight_foreground%', colors['foreground'])
+                    anno_content = anno_content.replace('%anno_text%', annotation['text'])
+
+                    note_content.append(anno_content)
+
+                # Create or update the note in Joplin
                 note_title = f"{book_title} - {author}"
                 notes = self.joplin.search_all(query=note_title, type_="note")
-                
+
                 # Only consider the note if it's in our configured notebook
                 existing_note = None
                 for note in notes:
                     if note.parent_id == self.config['notebook_id']:
                         existing_note = note
                         break
-                
+
                 try:
                     if existing_note:
-                        print("Updating existing note...")  # Debug log
-                        # Update existing note with all new content
-                        existing_content = existing_note.body
-                        for timestamp, content in all_content:
-                            existing_content = self.insert_content_in_order(existing_content, content, timestamp)
-                        
+                        # Update existing note
+                        existing_content = existing_note.body or ""  # Use empty string if body is None
+                        new_content = ''.join(note_content)  # Join without any separator
+                        # Remove any trailing whitespace from existing content
+                        existing_content = existing_content.rstrip()
+                        # Add new content without separator
                         self.joplin.modify_note(
                             id_=existing_note.id,
-                            body=existing_content
+                            body=existing_content + new_content
                         )
                     else:
-                        print("Creating new note...")  # Debug log
-                        # Create new note with all content
-                        final_content = []
-                        for timestamp, content in all_content:
-                            final_content.append(content)
-                        
+                        # Create new note
                         self.joplin.add_note(
                             title=note_title,
-                            body='\n\n---\n\n'.join(final_content),
+                            body=''.join(note_content),  # Join without any separator
                             parent_id=self.config['notebook_id']
                         )
-                    export_success = True  # Mark that we had a successful export
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to export note: {str(e)}")
-                    print(f"Error details: {str(e)}")
                     continue
-            
-            # Show success message only if we had any successful exports
-            if export_success:
-                messagebox.showinfo("Success", "Annotations exported successfully!")
+
+            messagebox.showinfo("Success", "Annotations exported successfully!")
+            return True
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export to Joplin: {str(e)}")
+            return False
 
     def insert_content_in_order(self, existing_content, new_content, timestamp):
         """Insert new content in chronological order within the existing note content."""
