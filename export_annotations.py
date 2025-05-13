@@ -1,6 +1,6 @@
 # App configuration
 app_name = "Kobo Annotation Exporter"
-exec_name = "kae.exe"
+exec_name = "kae"
 app_version = "0.4.0 Cicero"
 
 import tkinter as tk
@@ -24,6 +24,15 @@ import cairosvg
 import base64
 import re
 import shutil
+
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 def check_dependencies():
     """Check if all required dependencies are installed and accessible."""
@@ -53,6 +62,11 @@ class KoboToJoplinApp:
     def __init__(self, root):
         self.root = root
         self.root.title(f"{app_name} - {app_version}")
+        
+        # Set window icon
+        icon_path = get_resource_path('app_icon.ico')
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
         
         # Load chapter formats configuration
         self.chapter_formats = self.load_chapter_formats()
