@@ -1,3 +1,8 @@
+# App configuration
+app_name = "Kobo Annotation Exporter"
+exec_name = "kae.exe"
+app_version = "0.4.0 Cicero"
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import sqlite3
@@ -47,7 +52,7 @@ def check_dependencies():
 class KoboToJoplinApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Kobo to Joplin Annotation Exporter")
+        self.root.title(f"{app_name} - {app_version}")
         
         # Load chapter formats configuration
         self.chapter_formats = self.load_chapter_formats()
