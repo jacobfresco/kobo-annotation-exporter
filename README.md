@@ -3,7 +3,7 @@
 A Python application that exports annotations from Kobo e-readers to Joplin notes. This tool allows you to easily transfer your book highlights, notes, and markup annotations from your Kobo device to Joplin for better organization and access.
 
 ## Stable release
-This branch is the repo for [release 0.2.2](https://github.com/jacobfresco/kobo-annotation-exporter/releases/tag/0.2.2). Branch is protected.
+This branch is the repo for [release 0.3.0](https://github.com/jacobfresco/kobo-annotation-exporter/releases/tag/0.3.0-plato). Branch is protected.
 
 ## Features
 
