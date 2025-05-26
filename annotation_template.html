@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Annotation Template</title>
+    <style>
+        .annotation {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .chapter-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .timestamp {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .annotation-text {
+            margin: 10px 0;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .annotation-type {
+            font-style: italic;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="annotation">
+        <div class="chapter-title">%chapter_title%</div>
+        <div class="timestamp">Timestamp: %anno_date% @ %anno_time%</div>
+        <div class="annotation-text" style="background-color: %highlight_background%; color: %highlight_foreground%;">
+            %anno_text%
+        </div>
+        <div class="annotation-type">Type: %anno_type%</div>
+    </div>
+</body>
+</html> 

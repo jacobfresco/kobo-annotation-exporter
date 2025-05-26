@@ -1,7 +1,7 @@
 # App configuration
 app_name = "Kobo Annotation Exporter"
 exec_name = "kae"
-app_version = "0.5.0 Erasmus"
+app_version = "0.5.0 \"Erasmus\""
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
