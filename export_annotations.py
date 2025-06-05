@@ -529,8 +529,8 @@ To get your Notebook ID:
         self.export_button = ttk.Button(button_frame, text="Export to Joplin", command=self.export_to_joplin)
         self.export_button.pack(side=tk.LEFT, padx=5)
         
-        # Set initial state of export button based on Joplin status
-        if not self.joplin_status:
+        # Set initial state of export button based on Joplin status and enable_joplin setting
+        if not (self.joplin_status and self.config.get('enable_joplin', True)):
             self.export_button.configure(state="disabled")
         
         ttk.Button(button_frame, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=5)
@@ -1658,6 +1658,10 @@ To get your Notebook ID:
                                  command=export_and_close, padding=(20, 5))
         export_button.pack(side=tk.LEFT, padx=5)
         
+        # Disable export button if Joplin is disabled
+        if not (self.joplin_status and self.config.get('enable_joplin', True)):
+            export_button.configure(state="disabled")
+        
         save_button = ttk.Button(button_frame, text="Save Image", 
                                command=save_image, padding=(20, 5))
         save_button.pack(side=tk.LEFT, padx=5)
@@ -1988,7 +1992,7 @@ To get your Notebook ID:
         """Update the export button text based on selected annotation type."""
         selected_items = self.tree.selection()
         if not selected_items:
-            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin_export', True)) else "disabled")
+            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
             return
             
         # Check if we have mixed annotation types
@@ -2013,7 +2017,7 @@ To get your Notebook ID:
             self.export_button.configure(text="Preview Image", state="normal")
         # If we only have other types, show Export to Joplin
         else:
-            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin_export', True)) else "disabled")
+            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
 
     def periodic_device_detection(self):
         """Periodically check for Kobo devices."""
