@@ -151,15 +151,12 @@ class KoboToJoplinApp:
             return
         
         # Check Joplin service and API token
-        if not self.check_joplin_service():
-            messagebox.showerror("Error", "Could not connect to Joplin Web Clipper service. Please make sure Joplin is running and the Web Clipper is enabled.")
-            self.root.destroy()
-            return
+        self.joplin_status = self.check_joplin_service() if self.config.get('enable_joplin_export', True) else False
+        if not self.joplin_status:
+            self.joplin_status = False
             
-        if not self.validate_api_token():
-            messagebox.showerror("Error", "Invalid Joplin API token. Please check your configuration.")
-            self.root.destroy()
-            return
+        if not self.validate_api_token() and self.config.get('enable_joplin_export', True):
+            self.joplin_status = False
         
         # Initialize Joplin API
         self.joplin = ClientApi(token=self.config['joplin_api_token'])
@@ -177,6 +174,9 @@ class KoboToJoplinApp:
         # Start periodic device detection
         self.detect_kobo_devices()
         self.root.after(5000, self.periodic_device_detection)  # Check every 5 seconds
+        
+        # Start periodic Joplin status check
+        self.root.after(5000, self.periodic_joplin_check)  # Check every 5 seconds
         
     def check_joplin_service(self):
         """Check if Joplin Web Clipper service is running."""
@@ -528,6 +528,10 @@ To get your Notebook ID:
         
         self.export_button = ttk.Button(button_frame, text="Export to Joplin", command=self.export_to_joplin)
         self.export_button.pack(side=tk.LEFT, padx=5)
+        
+        # Set initial state of export button based on Joplin status
+        if not self.joplin_status:
+            self.export_button.configure(state="disabled")
         
         ttk.Button(button_frame, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=5)
         
@@ -1889,7 +1893,7 @@ To get your Notebook ID:
         """Open the settings dialog."""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x300")  # Made window smaller since we removed font settings
+        settings_window.geometry("400x350")  # Made window taller to accommodate new checkbox
         settings_window.transient(self.root)
         settings_window.grab_set()
         
@@ -1897,37 +1901,43 @@ To get your Notebook ID:
         main_frame = ttk.Frame(settings_window, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Enable Joplin Export checkbox
+        enable_joplin_var = tk.BooleanVar(value=self.config.get('enable_joplin', True))
+        enable_joplin_check = ttk.Checkbutton(main_frame, text="Enable Joplin Export", variable=enable_joplin_var)
+        enable_joplin_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
         # Joplin API Token
-        ttk.Label(main_frame, text="Joplin API Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Joplin API Token:").grid(row=1, column=0, sticky=tk.W, pady=5)
         api_token_var = tk.StringVar(value=self.config.get('joplin_api_token', ''))
         api_token_entry = ttk.Entry(main_frame, textvariable=api_token_var, width=40)
-        api_token_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+        api_token_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Notebook ID
-        ttk.Label(main_frame, text="Notebook ID:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Notebook ID:").grid(row=2, column=0, sticky=tk.W, pady=5)
         notebook_id_var = tk.StringVar(value=self.config.get('notebook_id', ''))
         notebook_id_entry = ttk.Entry(main_frame, textvariable=notebook_id_var, width=40)
-        notebook_id_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
+        notebook_id_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Web Clipper URL
-        ttk.Label(main_frame, text="Web Clipper URL:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Web Clipper URL:").grid(row=3, column=0, sticky=tk.W, pady=5)
         web_clipper_url_var = tk.StringVar(value=self.config.get('web_clipper', {}).get('url', 'http://localhost'))
         web_clipper_url_entry = ttk.Entry(main_frame, textvariable=web_clipper_url_var, width=40)
-        web_clipper_url_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        web_clipper_url_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Web Clipper Port
-        ttk.Label(main_frame, text="Web Clipper Port:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Web Clipper Port:").grid(row=4, column=0, sticky=tk.W, pady=5)
         web_clipper_port_var = tk.StringVar(value=str(self.config.get('web_clipper', {}).get('port', 41184)))
         web_clipper_port_entry = ttk.Entry(main_frame, textvariable=web_clipper_port_var, width=40)
-        web_clipper_port_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        web_clipper_port_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=10)
         
         def save_settings():
             """Save the settings and update the configuration."""
             try:
+                self.config['enable_joplin'] = enable_joplin_var.get()
                 self.config['joplin_api_token'] = api_token_var.get()
                 self.config['notebook_id'] = notebook_id_var.get()
                 self.config['web_clipper'] = {
@@ -1940,11 +1950,8 @@ To get your Notebook ID:
                 with open(config_path, 'w') as f:
                     json.dump(self.config, f, indent=4)
                 
-                # Reinitialize Joplin API with new token
-                self.joplin = ClientApi(token=self.config['joplin_api_token'])
-                
                 settings_window.destroy()
-                messagebox.showinfo("Success", "Settings saved successfully!")
+                messagebox.showinfo("Settings Saved", "Settings have been saved. Please restart the application for the changes to take effect.")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
         
@@ -1981,7 +1988,7 @@ To get your Notebook ID:
         """Update the export button text based on selected annotation type."""
         selected_items = self.tree.selection()
         if not selected_items:
-            self.export_button.configure(text="Export to Joplin", state="normal")
+            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin_export', True)) else "disabled")
             return
             
         # Check if we have mixed annotation types
@@ -2006,7 +2013,7 @@ To get your Notebook ID:
             self.export_button.configure(text="Preview Image", state="normal")
         # If we only have other types, show Export to Joplin
         else:
-            self.export_button.configure(text="Export to Joplin", state="normal")
+            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin_export', True)) else "disabled")
 
     def periodic_device_detection(self):
         """Periodically check for Kobo devices."""
@@ -2023,6 +2030,27 @@ To get your Notebook ID:
         
         # Schedule next check
         self.root.after(5000, self.periodic_device_detection)
+
+    def periodic_joplin_check(self):
+        """Periodically check Joplin's status and update UI accordingly."""
+        if not self.config.get('enable_joplin_export', True):
+            self.joplin_status = False
+            self.export_button.configure(state="disabled")
+            self.root.after(5000, self.periodic_joplin_check)
+            return
+
+        previous_status = self.joplin_status
+        self.joplin_status = self.check_joplin_service()
+        
+        # If status changed, update UI
+        if previous_status != self.joplin_status:
+            if self.joplin_status:
+                self.export_button.configure(state="normal")
+            else:
+                self.export_button.configure(state="disabled")
+        
+        # Schedule next check
+        self.root.after(5000, self.periodic_joplin_check)
 
 if __name__ == "__main__":
     root = tk.Tk()
