@@ -533,6 +533,14 @@ To get your Notebook ID:
         if not (self.joplin_status and self.config.get('enable_joplin', True)):
             self.export_button.configure(state="disabled")
         
+        # Add export format dropdown button
+        self.export_format_var = tk.StringVar(value="Export Format")
+        self.format_menu = ttk.OptionMenu(button_frame, self.export_format_var, "Export Format", 
+                                        "Markdown", "HTML", "Text", 
+                                        command=self.on_export_format_selected)
+        self.format_menu.pack(side=tk.LEFT, padx=5)
+        self.format_menu.configure(state="disabled")  # Disable at startup
+        
         ttk.Button(button_frame, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=5)
         
         # Bind selection event to update button text
@@ -542,6 +550,13 @@ To get your Notebook ID:
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(0, weight=1)
         
+    def on_export_format_selected(self, selected_format):
+        """Handle export format selection."""
+        # Reset the dropdown to show the default text
+        self.export_format_var.set("Export Format")
+        # TODO: Implement export functionality for the selected format
+        print(f"Selected export format: {selected_format}")
+
     def treeview_sort_column(self, col, reverse):
         # Get all items from the tree
         items = [(self.tree.set(item, col), item) for item in self.tree.get_children('')]
@@ -1993,6 +2008,7 @@ To get your Notebook ID:
         selected_items = self.tree.selection()
         if not selected_items:
             self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
+            self.format_menu.configure(state="disabled")
             return
             
         # Check if we have mixed annotation types
@@ -2007,17 +2023,20 @@ To get your Notebook ID:
                 else:
                     has_other = True
                     
-                # If we have both types, disable the button
+                # If we have both types, disable both buttons
                 if has_markup and has_other:
                     self.export_button.configure(text="Export to Joplin", state="disabled")
+                    self.format_menu.configure(state="disabled")
                     return
         
-        # If we only have markup, show Preview Image
+        # If we only have markup, show Preview Image and disable format menu
         if has_markup:
             self.export_button.configure(text="Preview Image", state="normal")
-        # If we only have other types, show Export to Joplin
+            self.format_menu.configure(state="disabled")
+        # If we only have other types, show Export to Joplin and enable format menu
         else:
             self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
+            self.format_menu.configure(state="normal")
 
     def periodic_device_detection(self):
         """Periodically check for Kobo devices."""
