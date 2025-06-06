@@ -412,7 +412,9 @@ To get your Notebook ID:
             self.load_books()
         else:
             self.device_dropdown.set("No Kobo device detected")
-            
+            # Disable export button when no device is detected
+            self.export_button.configure(state="disabled")
+        
     def setup_ui(self):
         """Setup the user interface."""
         # Create main frame
@@ -529,9 +531,8 @@ To get your Notebook ID:
         self.export_button = ttk.Button(button_frame, text="Export to Joplin", command=self.export_to_joplin)
         self.export_button.pack(side=tk.LEFT, padx=5)
         
-        # Set initial state of export button based on Joplin status and enable_joplin setting
-        if not (self.joplin_status and self.config.get('enable_joplin', True)):
-            self.export_button.configure(state="disabled")
+        # Set initial state of export button - disabled by default until a device is detected
+        self.export_button.configure(state="disabled")
         
         # Add export format dropdown button
         self.export_format_var = tk.StringVar(value="Export Format")
@@ -2006,11 +2007,13 @@ To get your Notebook ID:
     def update_export_button_text(self, event=None):
         """Update the export button text based on selected annotation type."""
         selected_items = self.tree.selection()
-        if not selected_items:
-            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
-            self.format_menu.configure(state="disabled")
-            return
-            
+        
+        # Check if we have a Kobo device connected
+        has_kobo = len(self.kobo_devices) > 0
+        
+        # Check if Joplin is enabled and connected
+        joplin_ready = self.joplin_status and self.config.get('enable_joplin', True)
+        
         # Check if we have mixed annotation types
         has_markup = False
         has_other = False
@@ -2029,14 +2032,16 @@ To get your Notebook ID:
                     self.format_menu.configure(state="disabled")
                     return
         
-        # If we only have markup, show Preview Image and disable format menu
+        # If we only have markup, show Preview Image and enable if Kobo is connected
         if has_markup:
-            self.export_button.configure(text="Preview Image", state="normal")
+            self.export_button.configure(text="Preview Image", 
+                                       state="normal" if has_kobo else "disabled")
             self.format_menu.configure(state="disabled")
-        # If we only have other types, show Export to Joplin and enable format menu
+        # If we only have other types, show Export to Joplin and enable if all conditions are met
         else:
-            self.export_button.configure(text="Export to Joplin", state="normal" if (self.joplin_status and self.config.get('enable_joplin', True)) else "disabled")
-            self.format_menu.configure(state="normal")
+            self.export_button.configure(text="Export to Joplin", 
+                                       state="normal" if (has_kobo and joplin_ready and selected_items) else "disabled")
+            self.format_menu.configure(state="normal" if selected_items else "disabled")
 
     def periodic_device_detection(self):
         """Periodically check for Kobo devices."""
