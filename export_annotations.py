@@ -232,29 +232,34 @@ class KoboToJoplinApp:
         form_frame = ttk.Frame(main_frame)
         form_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Enable Joplin Export checkbox
+        enable_joplin_var = tk.BooleanVar(value=True)  # Default to enabled
+        enable_joplin_check = ttk.Checkbutton(form_frame, text="Enable Joplin Export", variable=enable_joplin_var)
+        enable_joplin_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
         # Joplin API Token
-        ttk.Label(form_frame, text="Joplin API Token:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(form_frame, text="Joplin API Token:").grid(row=1, column=0, sticky=tk.W, pady=5)
         api_token_var = tk.StringVar()
         api_token_entry = ttk.Entry(form_frame, textvariable=api_token_var, width=40)
-        api_token_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+        api_token_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Notebook ID
-        ttk.Label(form_frame, text="Notebook ID:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(form_frame, text="Notebook ID:").grid(row=2, column=0, sticky=tk.W, pady=5)
         notebook_id_var = tk.StringVar()
         notebook_id_entry = ttk.Entry(form_frame, textvariable=notebook_id_var, width=40)
-        notebook_id_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
+        notebook_id_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Web Clipper URL
-        ttk.Label(form_frame, text="Web Clipper URL:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(form_frame, text="Web Clipper URL:").grid(row=3, column=0, sticky=tk.W, pady=5)
         web_clipper_url_var = tk.StringVar(value="http://localhost")
         web_clipper_url_entry = ttk.Entry(form_frame, textvariable=web_clipper_url_var, width=40)
-        web_clipper_url_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        web_clipper_url_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Web Clipper Port
-        ttk.Label(form_frame, text="Web Clipper Port:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(form_frame, text="Web Clipper Port:").grid(row=4, column=0, sticky=tk.W, pady=5)
         web_clipper_port_var = tk.StringVar(value="41184")
         web_clipper_port_entry = ttk.Entry(form_frame, textvariable=web_clipper_port_var, width=40)
-        web_clipper_port_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        web_clipper_port_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Add help text
         help_text = """
@@ -277,10 +282,32 @@ To get your Notebook ID:
         
         config_saved = [False]  # Use a list to store the state
         
+        def toggle_joplin_fields(*args):
+            """Enable/disable Joplin fields based on checkbox state."""
+            state = 'normal' if enable_joplin_var.get() else 'disabled'
+            api_token_entry.configure(state=state)
+            notebook_id_entry.configure(state=state)
+            web_clipper_url_entry.configure(state=state)
+            web_clipper_port_entry.configure(state=state)
+            
+            # Clear fields when disabled
+            if not enable_joplin_var.get():
+                api_token_var.set('')
+                notebook_id_var.set('')
+                web_clipper_url_var.set('http://localhost')
+                web_clipper_port_var.set('41184')
+        
+        # Bind the toggle function to the checkbox
+        enable_joplin_var.trace('w', toggle_joplin_fields)
+        
+        # Initial state of fields
+        toggle_joplin_fields()
+        
         def save_config():
             """Save the configuration and close the dialog."""
             try:
                 config = {
+                    'enable_joplin': enable_joplin_var.get(),
                     'joplin_api_token': api_token_var.get(),
                     'notebook_id': notebook_id_var.get(),
                     'web_clipper': {
@@ -289,13 +316,14 @@ To get your Notebook ID:
                     }
                 }
                 
-                # Validate required fields
-                if not config['joplin_api_token']:
-                    messagebox.showerror("Error", "Please enter a Joplin API token")
-                    return
-                if not config['notebook_id']:
-                    messagebox.showerror("Error", "Please enter a Notebook ID")
-                    return
+                # Validate required fields only if Joplin is enabled
+                if config['enable_joplin']:
+                    if not config['joplin_api_token']:
+                        messagebox.showerror("Error", "Please enter a Joplin API token")
+                        return
+                    if not config['notebook_id']:
+                        messagebox.showerror("Error", "Please enter a Notebook ID")
+                        return
                 
                 # Save to file
                 config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
