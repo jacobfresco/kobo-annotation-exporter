@@ -583,8 +583,116 @@ To get your Notebook ID:
         """Handle export format selection."""
         # Reset the dropdown to show the default text
         self.export_format_var.set("Export Format")
-        # TODO: Implement export functionality for the selected format
+        
+        if selected_format == "Markdown":
+            self.export_to_markdown()
+        # TODO: Implement other export formats
         print(f"Selected export format: {selected_format}")
+
+    def export_to_markdown(self):
+        """Export annotations to a markdown file."""
+        try:
+            # Get selected annotations
+            selected_items = self.tree.selection()
+            if not selected_items:
+                messagebox.showwarning("Warning", "Please select annotations to export")
+                return False
+
+            # Check if we have markup annotations
+            has_markup = False
+            for item in selected_items:
+                values = self.tree.item(item)['values']
+                if values[5] == 'markup':  # Type is in the 6th column
+                    has_markup = True
+                    break
+
+            if has_markup:
+                messagebox.showwarning("Warning", "Markdown export does not support markup annotations. Please deselect markup annotations.")
+                return False
+
+            # Load template
+            try:
+                template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'annotation_template.md')
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    template = f.read()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load markdown template: {str(e)}")
+                return False
+
+            # Load highlight colors
+            try:
+                with open('highlight_colors.json', 'r') as f:
+                    highlight_colors = json.load(f)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load highlight colors: {str(e)}")
+                return False
+
+            # Group annotations by book
+            annotations_by_book = {}
+            for item in selected_items:
+                values = self.tree.item(item)['values']
+                book_title = values[0]
+                author = values[1]
+                annotation_text = values[2]
+                annotation_date = values[3]
+                bookmark_id = values[4]
+                annotation_type = values[5]
+                color = values[6]  # Get the color value
+
+                if (book_title, author) not in annotations_by_book:
+                    annotations_by_book[(book_title, author)] = []
+                annotations_by_book[(book_title, author)].append({
+                    'text': annotation_text,
+                    'date': annotation_date,
+                    'bookmark_id': bookmark_id,
+                    'type': annotation_type,
+                    'color': color
+                })
+
+            # Ask for save location
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".md",
+                filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+                initialfile="annotations.md"
+            )
+
+            if not file_path:  # User cancelled
+                return False
+
+            # Process each book's annotations
+            with open(file_path, 'w', encoding='utf-8') as f:
+                for (book_title, author), annotations in annotations_by_book.items():
+                    # Write book header
+                    f.write(f"# {book_title} - {author}\n\n")
+                    
+                    # Process each annotation
+                    for annotation in annotations:
+                        # Get highlight colors for this annotation type
+                        color_index = str(annotation['color'])
+                        colors = highlight_colors.get(color_index, {
+                            'background': '#FFFFFF',
+                            'foreground': '#000000'
+                        })
+
+                        # Format the annotation using the template
+                        anno_content = template
+                        anno_content = anno_content.replace('%chapter_title%', 'Chapter')  # TODO: Get actual chapter
+                        anno_content = anno_content.replace('%anno_date%', annotation['date'].split()[0])
+                        anno_content = anno_content.replace('%anno_time%', annotation['date'].split()[1])
+                        anno_content = anno_content.replace('%anno_page%', '')  # TODO: Get actual page
+                        anno_content = anno_content.replace('%anno_type%', annotation['type'])
+                        anno_content = anno_content.replace('%highlight_background%', colors['background'])
+                        anno_content = anno_content.replace('%highlight_foreground%', colors['foreground'])
+                        anno_content = anno_content.replace('%anno_text%', annotation['text'])
+
+                        f.write(anno_content + "\n\n")
+
+            messagebox.showinfo("Success", "Annotations exported successfully!")
+            return True
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export to markdown: {str(e)}")
+            return False
 
     def treeview_sort_column(self, col, reverse):
         # Get all items from the tree
@@ -1804,7 +1912,8 @@ To get your Notebook ID:
 
             # Load template
             try:
-                with open('annotation_template.md', 'r', encoding='utf-8') as f:
+                template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'annotation_template.md')
+                with open(template_path, 'r', encoding='utf-8') as f:
                     template = f.read()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load template: {str(e)}")
